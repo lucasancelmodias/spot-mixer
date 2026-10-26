@@ -34,6 +34,24 @@ describe('TrackList', () => {
 		expect(screen.getAllByText('3:07')).toHaveLength(2);
 	});
 
+	it('tags the tracks of My Mix as familiar or discovery', () => {
+		render(TrackList, {
+			tracks: [
+				{ ...track(1, 'a'), pool: 'familiar' },
+				{ ...track(2, 'a'), pool: 'discovery' },
+				track(3, 'b')
+			],
+			sourceNames: {},
+			onremove: () => {},
+			onmove: () => {}
+		});
+
+		expect(screen.getByText('Familiar').getAttribute('title')).toBe(
+			'From your top or saved tracks'
+		);
+		expect(screen.getAllByText(/^(Familiar|Discovery)$/)).toHaveLength(2);
+	});
+
 	it('reports move and remove, and disables moves past the ends', async () => {
 		const onremove = vi.fn();
 		const onmove = vi.fn();

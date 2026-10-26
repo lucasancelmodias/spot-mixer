@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { MixOptions, SourceSpec } from '@spot-mixer/shared';
-import { buildMix, type SourceGroup, trim } from '../src/mix/engine';
+import { blend, buildMix, type SourceGroup, trim } from '../src/mix/engine';
 import { adjacentPairs, canSeparate, orderTracks } from '../src/mix/order';
 import { createRng } from '../src/mix/rng';
 import type { Candidate } from '../src/mix/types';
@@ -88,6 +88,87 @@ describe('buildMix', () => {
 
 		expect(trim(groups, 10).map((group) => group.length)).toEqual([5, 3, 2]);
 		expect(trim(groups, 30)).toBe(groups);
+	});
+});
+
+describe('blend sources (My Mix)', () => {
+	/** `own` familiar tracks ranked first, then `popular` discovery tracks. */
+	function blendGroup(
+		artist: string,
+		spec: { count: number; familiarShare: number },
+		own: number,
+		popular: number
+	): SourceGroup {
+		const tracks = candidates(artist, own + popular).map((track) => ({
+			...track,
+			pool: track.rank < own ? ('familiar' as const) : ('discovery' as const)
+		}));
+		return {
+			spec: { kind: 'blend', artistId: artist, ...spec },
+			artistName: artist,
+			candidates: tracks
+		};
+	}
+
+	const pools = (tracks: Candidate[]) => tracks.map((track) => track.pool?.[0]).join('');
+
+	it('takes the share of familiar tracks, best first, and alternates the pools in proportion', () => {
+		const group = blendGroup('a', { count: 10, familiarShare: 0.6 }, 20, 20);
+
+		const tracks = blend(group.candidates, 10, 0.6);
+
+		expect(pools(tracks)).toBe('fdfdffdfdf');
+		expect(ids(tracks.filter((track) => track.pool === 'familiar'))).toEqual([
+			'a-0',
+			'a-1',
+			'a-2',
+			'a-3',
+			'a-4',
+			'a-5'
+		]);
+		expect(ids(tracks.filter((track) => track.pool === 'discovery'))).toEqual([
+			'a-20',
+			'a-21',
+			'a-22',
+			'a-23'
+		]);
+	});
+
+	it('fills the places of a pool that runs short from the other pool', () => {
+		const fewOwn = blendGroup('a', { count: 10, familiarShare: 0.8 }, 2, 20);
+		const fewPopular = blendGroup('a', { count: 10, familiarShare: 0.2 }, 20, 1);
+
+		expect(pools(blend(fewOwn.candidates, 10, 0.8)).replace(/d/g, '')).toBe('ff');
+		expect(blend(fewOwn.candidates, 10, 0.8)).toHaveLength(10);
+		expect(pools(blend(fewPopular.candidates, 10, 0.2)).replace(/f/g, '')).toBe('d');
+		expect(blend(fewPopular.candidates, 10, 0.2)).toHaveLength(10);
+	});
+
+	it('warns when both pools together are short, and keeps the pool in the result', () => {
+		const result = buildMix(
+			[blendGroup('a', { count: 10, familiarShare: 0.5 }, 2, 3), popular('b', 1)],
+			options({ order: 'grouped' })
+		);
+
+		expect(pools(result.tracks.filter((track) => track.sourceArtistId === 'a'))).toBe('dfdfd');
+		expect(result.warnings).toEqual(['a: 5 of 10 tracks are available.']);
+	});
+
+	it('keeps the ratio when the mix is trimmed to the maximum', () => {
+		const result = buildMix(
+			[
+				blendGroup('a', { count: 10, familiarShare: 0.5 }, 10, 10),
+				blendGroup('b', { count: 10, familiarShare: 0.5 }, 10, 10)
+			],
+			options({ maxTracks: 10 })
+		);
+
+		for (const artist of ['a', 'b']) {
+			const own = result.tracks.filter((track) => track.sourceArtistId === artist);
+			const familiar = own.filter((track) => track.pool === 'familiar').length;
+			expect(own).toHaveLength(5);
+			expect(Math.abs(familiar - (own.length - familiar))).toBeLessThanOrEqual(1);
+		}
 	});
 });
 

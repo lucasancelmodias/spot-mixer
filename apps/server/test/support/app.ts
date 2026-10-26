@@ -81,6 +81,27 @@ export async function buildTestApp(
 	return { app, kv, cipher, calls, guard, sessions, sleeps, logs, clock, caps, catalog };
 }
 
+/**
+ * Signs in through the OAuth routes of a test app with a Spotify fake. The helpers send the
+ * session cookie, and POST also sends the Origin header.
+ */
+export async function signIn(app: Awaited<ReturnType<typeof buildTestApp>>['app']) {
+	const login = await app.request('/auth/login');
+	const state = setCookies(login).oauth_state ?? '';
+	const callback = await app.request(`/auth/callback?code=c&state=${state}`, {
+		headers: { Cookie: `oauth_state=${state}` }
+	});
+	const session = setCookies(callback).sid ?? '';
+	const get = (path: string) => app.request(path, { headers: { Cookie: `sid=${session}` } });
+	const post = (path: string, body: unknown, cookie = `sid=${session}`) =>
+		app.request(path, {
+			method: 'POST',
+			body: JSON.stringify(body),
+			headers: { Cookie: cookie, Origin: TEST_ORIGIN, 'Content-Type': 'application/json' }
+		});
+	return { get, post };
+}
+
 /** Cookie values from the Set-Cookie headers of a response. */
 export function setCookies(res: Response): Record<string, string> {
 	const cookies: Record<string, string> = {};

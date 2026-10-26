@@ -45,10 +45,10 @@
 					<strong>Artist Mix</strong>
 					<span>Pick 2 or more artists. Use their popular tracks, your favorites, or albums.</span>
 				</a>
-				<div class="mode disabled" aria-disabled="true">
+				<a class="mode" href={resolve('/mix/me')}>
 					<strong>My Mix</strong>
-					<span>A mix of your most-listened artists. Coming in milestone M3.</span>
-				</div>
+					<span>A mix of your most-listened artists, with your own tracks and popular ones.</span>
+				</a>
 			</section>
 
 			<section class="account" aria-label="Spotify account">
@@ -125,10 +125,6 @@
 
 	.mode span {
 		color: var(--muted);
-	}
-
-	.mode.disabled {
-		opacity: 0.6;
 	}
 
 	.account {

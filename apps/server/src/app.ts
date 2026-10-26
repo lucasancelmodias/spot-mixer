@@ -11,6 +11,7 @@ import { PartialSaveError } from './playlists/save';
 import { authRoutes } from './routes/auth';
 import { catalogRoutes } from './routes/catalog';
 import { healthRoutes } from './routes/health';
+import { insightsRoutes } from './routes/insights';
 import { meRoutes } from './routes/me';
 import { mixRoutes } from './routes/mixes';
 import { statusRoutes } from './routes/status';
@@ -80,6 +81,7 @@ export function createApp(deps: AppDeps) {
 	app.route('/api/health', healthRoutes(deps.pingRedis));
 	app.route('/api/status', statusRoutes(deps.guard));
 	app.route('/api/me', meRoutes({ auth, kv: deps.kv, spotify }));
+	app.route('/api/insights', insightsRoutes({ auth, listening, callBudget }));
 	app.route('/api/mixes', mixRoutes({ auth, catalog, listening, spotify, callBudget }));
 	app.route('/api', catalogRoutes({ auth, catalog, callBudget }));
 	app.all('/api/*', (c) => c.json({ error: 'not_found' }, 404));

@@ -22,3 +22,12 @@ export const ORDER_OPTIONS = [
 	'grouped',
 	'chronological'
 ] as const;
+
+/** Spotify's time ranges for top items: about 4 weeks, 6 months and 1 year. */
+export const TIME_RANGES = ['short_term', 'medium_term', 'long_term'] as const;
+
+/** My Mix: the user's own tracks of an artist, or the artist's popular tracks (plan §7.3). */
+export const MIX_POOLS = ['familiar', 'discovery'] as const;
+
+/** The longest My Mix ranking. */
+export const MAX_RANKED_ARTISTS = 50;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { artistSummarySchema, mixPreviewSchema, saveMixResponseSchema } from '@spot-mixer/shared';
 import { z } from 'zod';
-import { buildTestApp, setCookies, TEST_ORIGIN } from './support/app';
+import { buildTestApp, signIn } from './support/app';
 import { headerOf, json } from './support/fakes';
 import {
 	fakeArtist,
@@ -21,20 +21,7 @@ async function signedIn(options: Partial<SpotifyFakeOptions> = {}, callBudget?: 
 		handler: spotifyFake({ artists: [daft, justice], ...options }),
 		callBudget
 	});
-	const login = await t.app.request('/auth/login');
-	const state = setCookies(login).oauth_state ?? '';
-	const callback = await t.app.request(`/auth/callback?code=c&state=${state}`, {
-		headers: { Cookie: `oauth_state=${state}` }
-	});
-	const session = setCookies(callback).sid ?? '';
-	const get = (path: string) => t.app.request(path, { headers: { Cookie: `sid=${session}` } });
-	const post = (path: string, body: unknown, cookie = `sid=${session}`) =>
-		t.app.request(path, {
-			method: 'POST',
-			body: JSON.stringify(body),
-			headers: { Cookie: cookie, Origin: TEST_ORIGIN, 'Content-Type': 'application/json' }
-		});
-	return { ...t, get, post };
+	return { ...t, ...(await signIn(t.app)) };
 }
 
 function recipe(sources: unknown[], options: Record<string, unknown> = {}) {

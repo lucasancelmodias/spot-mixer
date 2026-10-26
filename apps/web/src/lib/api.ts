@@ -1,5 +1,7 @@
 import type {
 	AlbumSummary,
+	ArtistInsights,
+	ArtistInsightsRequest,
 	ArtistSummary,
 	HealthResponse,
 	MeResponse,
@@ -56,6 +58,11 @@ export function searchArtists(query: string, fetchFn: FetchLike = browserFetch) 
 /** Albums and singles of an artist: albums first, newest first. */
 export function getArtistReleases(artistId: string, fetchFn: FetchLike = browserFetch) {
 	return request<AlbumSummary[]>(`/api/artists/${encodeURIComponent(artistId)}/albums`, fetchFn);
+}
+
+/** My Mix: the user's most-listened artists, best first, with Spotify's facts as reasons. */
+export function getArtistInsights(body: ArtistInsightsRequest, fetchFn: FetchLike = browserFetch) {
+	return request<ArtistInsights>('/api/insights/artists', fetchFn, postJson(body));
 }
 
 export function previewMix(recipe: MixRecipe, fetchFn: FetchLike = browserFetch) {

@@ -7,7 +7,10 @@ import type { Candidate } from './types';
 export type SourceGroup = {
 	spec: SourceSpec;
 	artistName: string;
-	/** In rank order. For album sources: album by album, in track order. */
+	/**
+	 * In rank order. For album sources: album by album, in track order. For blend sources: the
+	 * familiar pool, then the discovery pool, with no song in both.
+	 */
 	candidates: Candidate[];
 };
 
@@ -61,7 +64,27 @@ export function trim(groups: Candidate[][], maxTracks: number): Candidate[][] {
 	return groups.map((group, index) => group.slice(0, quotas[index]));
 }
 
+/**
+ * Takes `familiarShare` of the tracks from the familiar pool and the rest from the discovery pool
+ * (plan §7.3). A pool that runs short leaves its places to the other one. The two pools alternate
+ * in proportion, so a trim to `maxTracks` keeps the ratio.
+ */
+export function blend(eligible: Candidate[], count: number, familiarShare: number): Candidate[] {
+	const familiar = eligible.filter((track) => track.pool === 'familiar');
+	const discovery = eligible.filter((track) => track.pool !== 'familiar');
+	const wanted = Math.round(count * familiarShare);
+	const fromFamiliar = Math.min(familiar.length, Math.max(wanted, count - discovery.length));
+	const fromDiscovery = Math.min(discovery.length, count - fromFamiliar);
+	const spread = (tracks: Candidate[]) =>
+		tracks.map((track, i) => ({ track, position: (i + 0.5) / tracks.length }));
+	// The sort is stable: on equal positions, the familiar track comes first.
+	return [...spread(familiar.slice(0, fromFamiliar)), ...spread(discovery.slice(0, fromDiscovery))]
+		.sort((a, b) => a.position - b.position)
+		.map(({ track }) => track);
+}
+
 function select(spec: SourceSpec, eligible: Candidate[], rng: Rng): Candidate[] {
+	if (spec.kind === 'blend') return blend(eligible, spec.count, spec.familiarShare);
 	if (spec.kind !== 'albums') return eligible.slice(0, spec.count);
 	const perAlbum = spec.randomPerAlbum;
 	if (perAlbum === null) return eligible;

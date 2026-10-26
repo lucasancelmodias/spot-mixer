@@ -11,6 +11,7 @@ import { mapLimit } from '../lib/async';
 import { parseJson } from '../lib/validate';
 import type { Listening } from '../listening/listening';
 import { buildMix, type SourceGroup } from '../mix/engine';
+import { sameSong } from '../mix/songs';
 import type { Candidate } from '../mix/types';
 import { saveMix } from '../playlists/save';
 import type { SessionEnv } from '../session/middleware';
@@ -38,6 +39,7 @@ export function mixRoutes(deps: MixDeps) {
 		const recipe = await parseJson(c, mixRecipeSchema);
 		const budget = new CallBudget(deps.callBudget);
 		const context = { deps, uid: c.get('session').uid, token: c.get('userToken'), budget };
+		await loadUserTracks(recipe.sources, context);
 		const groups = await mapLimit(recipe.sources, PARALLEL_SOURCES, (spec) =>
 			resolveSource(spec, context)
 		);
@@ -66,6 +68,20 @@ export function mixRoutes(deps: MixDeps) {
 
 type ResolveContext = { deps: MixDeps; uid: string; token: TokenSource; budget: CallBudget };
 
+/**
+ * Sources that read the user's own tracks share one cached list. It loads here once, before the
+ * sources run in parallel: parallel loaders of one cold key could each call Spotify.
+ */
+async function loadUserTracks(sources: SourceSpec[], context: ResolveContext): Promise<void> {
+	const { deps, uid, token, budget } = context;
+	if (sources.some((spec) => spec.kind === 'favorites' || spec.kind === 'blend')) {
+		await deps.listening.topTracks(uid, token, budget);
+	}
+	if (sources.some((spec) => spec.kind === 'blend')) {
+		await deps.listening.savedTracks(uid, token, budget);
+	}
+}
+
 async function resolveSource(spec: SourceSpec, context: ResolveContext): Promise<SourceGroup> {
 	const { deps, uid, token, budget } = context;
 	const artist = await deps.catalog.getArtist(spec.artistId, budget);
@@ -85,6 +101,26 @@ async function resolveSource(spec: SourceSpec, context: ResolveContext): Promise
 		case 'favorites': {
 			const tracks = await deps.listening.favorites(uid, token, spec.artistId, budget);
 			return { spec, artistName, candidates: ranked(tracks) };
+		}
+		case 'blend': {
+			const familiar = await deps.listening.familiar(uid, token, spec.artistId, budget);
+			// Popular tracks that are versions of familiar ones stay out of the discovery pool. Any
+			// count above 10 reads the same top tracks and search results, so extra tracks cost no call.
+			const popular = await deps.catalog.popularTracks(
+				spec.artistId,
+				spec.count + POPULAR_MARGIN + familiar.length,
+				budget
+			);
+			const discovery = popular.filter((track) => !familiar.some((own) => sameSong(own, track)));
+			const candidates = [
+				...ranked(familiar).map((track) => ({ ...track, pool: 'familiar' as const })),
+				...ranked(discovery).map((track) => ({
+					...track,
+					rank: familiar.length + track.rank,
+					pool: 'discovery' as const
+				}))
+			];
+			return { spec, artistName, candidates };
 		}
 		case 'albums': {
 			const albums = await deps.catalog.albumsWithTracks(spec.albumIds, budget);

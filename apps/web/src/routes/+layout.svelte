@@ -15,6 +15,7 @@
 	<a class="brand" href={resolve('/')}>spot-mixer</a>
 	<nav>
 		<a href={resolve('/mix/artists')}>Artist Mix</a>
+		<a href={resolve('/mix/me')}>My Mix</a>
 	</nav>
 </header>
 
@@ -131,6 +132,11 @@
 
 	header.site a {
 		color: inherit;
+	}
+
+	header.site nav {
+		display: flex;
+		gap: 1rem;
 	}
 
 	.brand {

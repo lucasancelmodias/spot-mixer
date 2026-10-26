@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, getHealth, getMe, logout, previewMix } from './api';
+import { ApiError, getArtistInsights, getHealth, getMe, logout, previewMix } from './api';
 
 function respond(status: number, body?: unknown) {
 	const calls: { input: string; init?: RequestInit }[] = [];
@@ -91,6 +91,20 @@ describe('previewMix', () => {
 		).catch((e: unknown) => e);
 
 		expect(error).toMatchObject({ status: 503, code: 'spotify_unavailable', body: { until } });
+	});
+});
+
+describe('getArtistInsights', () => {
+	it('posts the recency and returns the ranking', async () => {
+		const { fetchFn, calls } = respond(200, { artists: [], spotifyCalls: 9 });
+
+		expect(await getArtistInsights({ recency: 0.25 }, fetchFn)).toEqual({
+			artists: [],
+			spotifyCalls: 9
+		});
+		expect(calls[0]?.input).toBe('/api/insights/artists');
+		expect(calls[0]?.init?.method).toBe('POST');
+		expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ recency: 0.25 });
 	});
 });
 

@@ -1,6 +1,6 @@
 # spot-mixer — implementation plan
 
-> Status: **approved** on 2026-10-26. M0 and M1 are done. The M2 (Artist Mix) code is done; saving a mix from the browser is still to check (§14).
+> Status: **approved** on 2026-10-26. M0 and M1 are done. The M2 (Artist Mix) and M3 (My Mix) code is done; the live checks of both are still open (§14).
 > Research behind this plan: [Spotify Web API and mixer stack](reports/Spotify%20Web%20API%20and%20mixer%20stack.md). The report gives a source and a date for every fact. The raw notes are in `docs/research_notes/`.
 > Decisions are in §16. Facts that need a live check are in the M1 checks (§14).
 
@@ -277,7 +277,8 @@ Request budget for each operation (default cap: 60 Spotify calls, configurable).
 | Album picker for one artist | 1–3 album pages |
 | Artist Mix with 6 selected albums | 6 album-track calls |
 | Save a 60-track mix | 1 create + 1 add |
-| My Mix analysis | 3 + 3 + 1 + ≤ 4 + ≤ 10 = ≤ 21 (§7.1) |
+| My Mix analysis | 3 + 6 + 1 + ≤ 4 + ≤ 10 = ≤ 24 (§7.1) |
+| My Mix preview, 5 artists, after the analysis | 5 × 3 = 15: artist, Top Tracks and 1 search page each. The user's tracks come from the analysis cache. |
 
 ### 5.5 Popular tracks and capabilities (D2)
 
@@ -332,7 +333,8 @@ type ArtistRef = { id: string; name: string; imageUrl?: string };
 type SourceSpec =
   | { kind: "popular"; artist: ArtistRef; count: number }
   | { kind: "favorites"; artist: ArtistRef; count: number }
-  | { kind: "albums"; artist: ArtistRef; albumIds: string[]; pick: "all" | { randomPerAlbum: number } };
+  | { kind: "albums"; artist: ArtistRef; albumIds: string[]; pick: "all" | { randomPerAlbum: number } }
+  | { kind: "blend"; artist: ArtistRef; count: number; familiarShare: number }; // My Mix (§7.3)
 
 type MixOptions = {
   maxTracks?: number;                         // trims each artist in proportion
@@ -356,6 +358,7 @@ type Candidate = {
   sourceArtistId: string;                     // the bucket artist that produced it
   rank?: number;                              // 0 = most popular in its source
   isrc?: string;                              // full track objects only, not album track lists
+  pool?: "familiar" | "discovery";            // blend sources only (§7.3)
 };
 ```
 
@@ -417,7 +420,7 @@ Properties for tests:
 | Signal | Endpoint | Calls | Cache TTL |
 |---|---|---|---|
 | Top artists, 3 time ranges | `GET /me/top/artists` | 3 | 1 h |
-| Top tracks, 3 time ranges | `GET /me/top/tracks` | 3 | 1 h |
+| Top tracks, 3 time ranges, 100 each | `GET /me/top/tracks` | 6 | 1 h |
 | Last 50 plays | `GET /me/player/recently-played` | 1 | 15 min |
 | Followed artists | `GET /me/following?type=artist` | ≤ 4 (200 artists) | 6 h |
 | Saved tracks | `GET /me/tracks` | ≤ 10 (500 tracks) | 6 h |
@@ -441,8 +444,12 @@ R(a) = Σ_r w_r · (1 − rank_r(a) / N_r)                      top-artist lists
      + ε · followed(a)
 ```
 
-- `r` is a time range. Default weights: short 0.45, medium 0.35, long 0.20. The "recent ↔ all-time" slider moves the `w_r` values.
-- Start values: `β = 0.5`, `γ = 0.3`, `δ = 0.2`, `ε = 0.1`. Tune them in M3.
+- `r` is a time range. Default weights: short 0.45, medium 0.35, long 0.20. The "all time ↔ right now" slider moves the `w_r` values:
+  - The slider value goes from 0 (all time) to 1 (right now). The default is 0.5.
+  - The weights are linear between three sets, each with a sum of 1: (0.10, 0.30, 0.60) at 0, the default weights at 0.5, and (0.80, 0.15, 0.05) at 1.
+- `Z` is `Z_r`, the largest track sum of range `r` over all artists. So each top-tracks term is at most `β · w_r`.
+- Start values: `β = 0.5`, `γ = 0.3`, `δ = 0.2`, `ε = 0.1` (`SIGNAL_WEIGHTS` in `mix/ranking.ts`). Tune them with live data (M3 live check, §14).
+- Ties: by artist name. The API returns at most 50 artists.
 - **Compliance rule (Policy III.13):**
   - Read literally, III.13 could cover this ranking. The safe form follows.
   - The server computes `R(a)` on demand, for one request, and shows the result only to the owner of the data.
@@ -457,6 +464,14 @@ For each selected artist, the engine merges two pools:
 - **Discovery pool**: popular tracks from the provider chain (§5.5) that are not in the user's saved or top tracks.
 
 The familiar ↔ discovery slider sets the ratio between the pools. Then the normal pipeline (§6.2) runs.
+
+Implementation (`blend` source, M3):
+
+- **Familiar pool order:** the user's top tracks by the artist (short range first, then medium, then long), then the saved tracks by the artist, the last saved first.
+- **No song in both pools:** a popular track that is a version of a familiar track (§6.2 keys) stays out of the discovery pool.
+- **Ratio:** the engine takes `round(count × familiarShare)` familiar tracks and fills the rest with discovery tracks. If one pool runs short, the other pool fills its places.
+- **Order inside the source:** the two pools alternate in proportion. A trim to `maxTracks` (§6.2 step 5) then keeps the ratio.
+- **Preview:** each track carries its pool, and the UI tags it "Familiar" or "Discovery".
 
 ### 7.4 Later options
 
@@ -483,7 +498,7 @@ API routes are under `/api`. OAuth routes are under `/auth`, to match the regist
 | GET | `/api/artists/:id` | Artist details |
 | GET | `/api/artists/:id/popular?limit=` | Popular tracks (provider chain) |
 | GET | `/api/artists/:id/albums` | Albums and singles (all pages, at most 200) |
-| POST | `/api/insights/artists` | My Mix ranking with reasons (optional body: history totals) |
+| POST | `/api/insights/artists` | My Mix ranking with reasons. Body: `{ recency }` (0 to 1); later also the history totals (§7.4) |
 | POST | `/api/mixes/preview` | Run the engine on a recipe |
 | POST | `/api/mixes` | Create the playlist and add the tracks |
 | DELETE | `/api/me/data` | Delete all data that the app keeps for the user |
@@ -504,7 +519,9 @@ Svelte 5 with runes. State lives in `.svelte.ts` modules. SvelteKit runs in SPA 
 | `/settings` | Renew access, disconnect, delete my data, (later) history import |
 | `/privacy` | Privacy policy (Policy I.1) |
 
-Shared components (M2): `ArtistSearch`, `BucketItem`, `AlbumPicker`, `MixOptionsForm`, `TrackList` (move, remove), `SaveDialog`. Not built yet: track locking, a separate `QuotaBanner` (quota errors show as messages for now).
+Shared components (M2): `ArtistSearch`, `BucketItem`, `AlbumPicker`, `MixOptionsForm`, `TrackList` (move, remove), `SaveDialog`. M3 adds `RankedArtistList` (selection and reasons), and `TrackList` tags the tracks of a My Mix as "Familiar" or "Discovery". Not built yet: track locking, a separate `QuotaBanner` (quota errors show as messages for now).
+
+The My Mix settings (sliders, counts, mix options) are stored in `localStorage` like the bucket draft. The ranking and the selection are not stored (§7.2).
 
 Spotify branding rules (design guidelines):
 
@@ -717,6 +734,25 @@ M2 status (2026-10-26):
 - **Still open:**
   - Save a mix from the browser and check the playlist in Spotify. This is the "done when" check of M2.
   - Track locking (§3.1) is not built yet.
+
+M3 status (2026-10-26):
+- **Server code:** done.
+  - `Listening` reads the five signals of §7.1, at most 24 calls with a cold cache. The keys and TTLs follow §10.
+  - `mix/ranking.ts` computes `R(a)` (§7.2) as a pure function.
+  - `POST /api/insights/artists` returns the ranked artists with Spotify's facts as reasons: the time ranges in the top artists and top tracks, the number of saved tracks and recent plays, and the follow. It never returns the score.
+  - The `blend` source and its engine step implement §7.3.
+  - The preview loads the user's tracks once before the sources run in parallel. Before this change, parallel sources could each load one cold key.
+- **Web code:** done. The `/mix/me` page has:
+  - the ranking, read when the page opens, with reasons and links to Spotify
+  - the "all time ↔ right now" slider, which ranks again from the cache
+  - the number of artists (default: the top 5), or a manual selection of up to 12 artists
+  - the familiar ↔ discovery slider and the tracks per artist
+  - the mix options, the preview and the save dialog of M2
+- **Tests:** 137 server tests and 38 web tests. One route test runs the "done when" flow against a fake Spotify: ranking, then a preview of the top 5 artists, then the save. Each request stays within the default budget of 60 calls. The ranking needs 9 calls and the preview 15.
+- **UI check:** the page ran against the real API routes with the test fakes (Vite dev server, Playwright, desktop and 390 px wide). The ranking, the slider, the preview with pool tags and the save all worked.
+- **Still open:**
+  - Live check with the owner's account: a My Mix of the top 5 artists saves to Spotify, and the call counts match §5.4. This is the "done when" check of M3.
+  - Tune `β`, `γ`, `δ` and `ε` with that data (§7.2).
 
 M1 live checks (one allowlisted account, small fixed call budget):
 

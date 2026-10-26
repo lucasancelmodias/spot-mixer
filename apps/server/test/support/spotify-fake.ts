@@ -69,7 +69,21 @@ export type SpotifyFakeOptions = {
 	batchAlbums?: (ids: string[]) => Response;
 	playlistItems?: (call: number) => Response;
 	userTopTracks?: (range: string, offset: number) => Response;
+	/** Default for all user lists below: empty. */
+	userTopArtists?: (range: string) => Response;
+	recentlyPlayed?: () => Response;
+	followedArtists?: (after: string | null) => Response;
+	savedTracks?: (offset: number) => Response;
 };
+
+/** A full artist object, as the user endpoints return it. */
+export function rawArtist(artist: FakeArtist) {
+	return {
+		...artist,
+		genres: [],
+		images: [{ url: `https://i.scdn.co/${artist.name}`, width: 320, height: 320 }]
+	};
+}
 
 /** A fake Spotify for route and catalog tests: accounts, catalog, user and playlist endpoints. */
 export function spotifyFake(options: SpotifyFakeOptions): FetchHandler {
@@ -159,6 +173,23 @@ export function spotifyFake(options: SpotifyFakeOptions): FetchHandler {
 			const offset = Number(url.searchParams.get('offset') ?? 0);
 			if (options.userTopTracks) return options.userTopTracks(range, offset);
 			return json({ items: [], next: null });
+		}
+		if (path === '/v1/me/top/artists') {
+			const range = url.searchParams.get('time_range') ?? '';
+			return options.userTopArtists?.(range) ?? json({ items: [], next: null });
+		}
+		if (path === '/v1/me/player/recently-played') {
+			return options.recentlyPlayed?.() ?? json({ items: [], next: null });
+		}
+		if (path === '/v1/me/following') {
+			return (
+				options.followedArtists?.(url.searchParams.get('after')) ??
+				json({ artists: { items: [], next: null, cursors: { after: null } } })
+			);
+		}
+		if (path === '/v1/me/tracks') {
+			const offset = Number(url.searchParams.get('offset') ?? 0);
+			return options.savedTracks?.(offset) ?? json({ items: [], next: null });
 		}
 
 		if (path === '/v1/me/playlists' && init?.method === 'POST') {

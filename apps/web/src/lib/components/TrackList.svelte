@@ -1,6 +1,14 @@
 <script lang="ts">
-	import type { MixTrack } from '@spot-mixer/shared';
+	import type { MixPool, MixTrack } from '@spot-mixer/shared';
 	import { formatDuration } from '#lib/format.js';
+
+	const POOL_LABELS: Record<MixPool, { label: string; title: string }> = {
+		familiar: { label: 'Familiar', title: 'From your top or saved tracks' },
+		discovery: {
+			label: 'Discovery',
+			title: 'A popular track that is not in your top or saved tracks'
+		}
+	};
 
 	let {
 		tracks,
@@ -36,6 +44,11 @@
 				</small>
 			</div>
 			<span class="source" title="Source artist">{sourceNames[track.sourceArtistId] ?? ''}</span>
+			{#if track.pool}
+				<span class="pool {track.pool}" title={POOL_LABELS[track.pool].title}>
+					{POOL_LABELS[track.pool].label}
+				</span>
+			{/if}
 			<span class="duration">{formatDuration(track.durationMs)}</span>
 			<span class="actions">
 				<button
@@ -111,6 +124,18 @@
 		white-space: nowrap;
 	}
 
+	.pool {
+		padding: 0 0.5rem;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		font-size: 0.75rem;
+		color: var(--muted);
+	}
+
+	.pool.familiar {
+		border-color: var(--accent);
+	}
+
 	.actions {
 		display: flex;
 		gap: 0.25rem;
@@ -121,7 +146,8 @@
 	}
 
 	@media (max-width: 40rem) {
-		.source {
+		.source,
+		.pool {
 			display: none;
 		}
 	}

@@ -7,6 +7,7 @@ import {
 	MAX_MIX_TRACKS,
 	MAX_SOURCE_COUNT,
 	MIN_MIX_ARTISTS,
+	MIX_POOLS,
 	ORDER_OPTIONS
 } from './limits';
 
@@ -28,6 +29,14 @@ export const sourceSpecSchema = z.discriminatedUnion('kind', [
 		albumIds: z.array(spotifyIdSchema).min(1).max(MAX_ALBUMS_PER_SOURCE),
 		/** Null: every track of the selected albums. */
 		randomPerAlbum: z.number().int().min(1).max(50).nullable()
+	}),
+	/** My Mix (plan §7.3): the user's own tracks of the artist, mixed with its popular tracks. */
+	z.object({
+		kind: z.literal('blend'),
+		artistId: spotifyIdSchema,
+		count: z.number().int().min(1).max(MAX_SOURCE_COUNT),
+		/** Share of the tracks from the familiar pool, 0 to 1. Popular tracks fill the rest. */
+		familiarShare: z.number().min(0).max(1)
 	})
 ]);
 
@@ -53,9 +62,13 @@ export const mixRecipeSchema = z.object({
 	options: mixOptionsSchema
 });
 
+export const mixPoolSchema = z.enum(MIX_POOLS);
+
 export const mixTrackSchema = trackSummarySchema.extend({
 	/** The bucket artist whose source produced the track. */
-	sourceArtistId: z.string()
+	sourceArtistId: z.string(),
+	/** Only for blend sources: the user's own track, or a popular track of the artist. */
+	pool: mixPoolSchema.optional()
 });
 
 /** Body of `POST /api/mixes/preview`. */
@@ -86,6 +99,7 @@ export const saveMixResponseSchema = z.object({
 export type SourceSpec = z.infer<typeof sourceSpecSchema>;
 export type MixOptions = z.infer<typeof mixOptionsSchema>;
 export type MixRecipe = z.infer<typeof mixRecipeSchema>;
+export type MixPool = z.infer<typeof mixPoolSchema>;
 export type MixTrack = z.infer<typeof mixTrackSchema>;
 export type MixPreview = z.infer<typeof mixPreviewSchema>;
 export type SaveMixRequest = z.infer<typeof saveMixRequestSchema>;

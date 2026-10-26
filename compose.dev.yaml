@@ -1,0 +1,11 @@
+# Development override: starts only Redis and publishes it on the loopback address.
+# The API and the web app run on the host with `bun run dev`.
+# Usage: docker compose -f compose.yaml -f compose.dev.yaml up -d
+services:
+  app:
+    profiles: ['full']
+  redis:
+    ports:
+      # Host port 6380, not 6379: a local Redis (for example one in WSL) often holds 6379,
+      # and the API would then talk to that server instead of this one.
+      - '127.0.0.1:6380:6379'

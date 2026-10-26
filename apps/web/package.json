@@ -1,0 +1,32 @@
+{
+	"name": "@spot-mixer/web",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "bun --bun vite dev",
+		"build": "bun --bun vite build",
+		"preview": "bun --bun vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@spot-mixer/shared": "workspace:*",
+		"@sveltejs/adapter-static": "^4.0.0",
+		"@sveltejs/kit": "^3.1.0",
+		"@sveltejs/vite-plugin-svelte": "^7.3.1",
+		"@testing-library/svelte": "^5.4.2",
+		"@types/node": "^22",
+		"jsdom": "^29.1.1",
+		"svelte": "^5.57.2",
+		"svelte-check": "^4.7.7",
+		"typescript": "6.0.3",
+		"vite": "^8.3.5",
+		"vitest": "^5.0.5"
+	},
+	"imports": {
+		"#lib": "./src/lib/index.js",
+		"#lib/*": "./src/lib/*"
+	}
+}

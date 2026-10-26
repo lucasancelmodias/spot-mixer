@@ -1,0 +1,9 @@
+# Package managers
+bun.lock
+bun.lockb
+
+# Hand-written research and plan documents
+docs/
+
+# Static assets
+apps/web/static/

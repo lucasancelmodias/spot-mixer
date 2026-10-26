@@ -1,0 +1,22 @@
+{
+	"name": "@spot-mixer/server",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun --env-file=../../.env --watch src/index.ts",
+		"build": "bun build src/index.ts --target=bun --outdir=dist",
+		"start": "bun dist/index.js",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@hono/bun": "^1.0.1",
+		"@spot-mixer/shared": "workspace:*",
+		"hono": "^4.13.14",
+		"zod": "^4.6.7"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.4",
+		"typescript": "6.0.3"
+	}
+}

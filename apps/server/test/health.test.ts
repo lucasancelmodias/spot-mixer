@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import { healthResponseSchema } from '@spot-mixer/shared';
-import { createApp } from '../src/app';
 import { redisPinger } from '../src/cache/redis';
+import { buildTestApp } from './support/app';
 
 describe('GET /api/health', () => {
 	it('returns 200 when Redis answers', async () => {
-		const app = createApp({ pingRedis: async () => true });
+		const { app } = await buildTestApp({ pingRedis: async () => true });
 
 		const res = await app.request('/api/health');
 
@@ -14,7 +14,7 @@ describe('GET /api/health', () => {
 	});
 
 	it('returns 503 when Redis does not answer', async () => {
-		const app = createApp({ pingRedis: async () => false });
+		const { app } = await buildTestApp({ pingRedis: async () => false });
 
 		const res = await app.request('/api/health');
 
@@ -26,7 +26,7 @@ describe('GET /api/health', () => {
 	});
 
 	it('returns a JSON 404 for an unknown API route', async () => {
-		const app = createApp({ pingRedis: async () => true });
+		const { app } = await buildTestApp();
 
 		const res = await app.request('/api/unknown');
 

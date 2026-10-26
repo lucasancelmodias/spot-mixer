@@ -7,7 +7,9 @@
 		"build": "bun build src/index.ts --target=bun --outdir=dist",
 		"start": "bun dist/index.js",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
-		"test": "bun test"
+		"test": "bun test",
+		"spike:catalog": "bun --env-file=../../.env scripts/spike-catalog.ts",
+		"check:capabilities": "bun --env-file=../../.env scripts/check-capabilities.ts"
 	},
 	"dependencies": {
 		"@hono/bun": "^1.0.1",

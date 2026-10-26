@@ -1,6 +1,6 @@
 # spot-mixer — implementation plan
 
-> Status: **approved** on 2026-10-26. M0 (scaffold) is done (§14).
+> Status: **approved** on 2026-10-26. M0 is done. The M1 code is done; the live sign-in check is still open (§14).
 > Research behind this plan: [Spotify Web API and mixer stack](reports/Spotify%20Web%20API%20and%20mixer%20stack.md). The report gives a source and a date for every fact. The raw notes are in `docs/research_notes/`.
 > Decisions are in §16. Facts that need a live check are in the M1 checks (§14).
 
@@ -33,6 +33,12 @@ Facts as of 2026-10-25. "New app" means a Development Mode Client ID created on 
 | C8 | **Terms prohibit:**<br>• indefinite storage of Spotify content, or databases of it (IV.3.1)<br>• tools that retrieve, duplicate or index Spotify content (IV.2.4(a))<br>• ML or AI ingestion (IV.2.1(a))<br>• transfer of Spotify content to third parties (IV.2.5)<br><br>**Terms require:**<br>• a disconnect option (V.8)<br>• deletion of user data within 5 days (App. A 5(c))<br>• private personal use only in Development Mode (III.1(a))<br><br>**Policy prohibits:**<br>• integration "with streams or content from another service" (III.5)<br>• any system that can "segue, mix, re-mix, or overlap" Spotify audio (III.7)<br>• analysis "for any purpose", including derived listenership metrics and user profiles (III.13)<br><br>**Policy requires:**<br>• a privacy policy (I.1)<br><br>**Design guidelines require:**<br>• attribution and a link back on every item<br>• a logo of at least 70 px<br>• uncropped cover art with 4 or 8 px corners<br>• no other brand next to Spotify's<br>• no app name that contains or resembles "Spotify" | Limits caching, external data, the My Mix ranking, the UI, and the app name. | Compliance rules (§12). Decisions D2 and D3. |
 | C9 | `GET /me` no longer returns `country`, `email`, `product` or `explicit_content`. It returns `account_id` (May 2026), which Spotify recommends as the stable user key. With a user token, the account's country sets availability. | The app cannot read the user's market. | Key users by `account_id`. Catalog reads use one configured market (§5.2, D7). |
 | C10 | Full track objects return `external_ids.isrc` again (since March 2026). Search documents an `isrc:` filter. No report confirms either for a new app. | Exact matching is possible, but untested. | ISRC-aware dedupe (§6.2). M1 checks (§14). |
+
+**This app** (M1 checks on 2026-10-26, [spike-results.md](spike-results.md)):
+- The Client ID was created between 2024-11-27 and 2026-02-11.
+- The November 2024 cuts (C6) apply.
+- The February 2026 cuts do not apply yet. Top Tracks, `popularity`, batch reads and `limit=50` still work, so C1, C3 and part of C9 are not in effect for this app today.
+- Spotify can apply those cuts at any time, so the design keeps every fallback. `bun run check:capabilities` shows the current state.
 
 ## 3. Scope
 
@@ -252,7 +258,8 @@ One fetch wrapper (`spotify/client.ts`) handles all Spotify calls. It does not u
 | `429` with `"reason":"QUOTA_EXCEEDED"`, or `Retry-After` > 30 s | Never try again. Open the circuit until `now + Retry-After` for all users. Fail fast with `SpotifyUnavailable(until)`. The web app shows a banner with the time. |
 | `429` with `Retry-After` ≤ 30 s | Wait, then try again one time. |
 | `429` without `Retry-After` | Wait 30 s one time. After a second 429, open the circuit for 15 minutes. |
-| `403` | Map the message to a typed error: user not on the allowlist, owner Premium lapsed, or endpoint blocked. Cache an endpoint refusal for 1 h (`cap:{endpoint}`), so the app does not call a blocked endpoint again. |
+| `403` | Map the message to a typed error: user not on the allowlist, owner Premium lapsed, or another refusal. |
+| Blocked endpoint | The client keeps a fixed blocklist of the removed endpoints and refuses them without a call. A refusal cache keyed by route was dropped: one 403 for one playlist would block all playlists. `bun run check:capabilities` checks what the app still has. |
 | `5xx` | Try again up to 3 times with exponential backoff and jitter. |
 | Paging | Async generator that follows `next`, with a hard page cap for each list. |
 | Parallel calls | At most 4 at a time for each operation. |
@@ -538,7 +545,6 @@ Every key has a TTL, so no Spotify data is stored without a time limit (Terms IV
 | `c:u:{uid}:recent` | string | 15 min | Recent plays |
 | `c:u:{uid}:followed` | string | 6 h | Followed artist IDs |
 | `c:u:{uid}:saved` | string | 6 h | Saved tracks (capped) |
-| `cap:{endpoint}` | string | 1 h | Endpoint refused with 403 |
 | `rl:sp:blocked-until` | string | until `Retry-After` | Circuit breaker |
 | `rl:sp:tokens` | hash | 1 min | Shared limiter state |
 | `rl:sp:count:{date}` | counter | 3 d | Daily request count |
@@ -605,15 +611,16 @@ SPOTIFY_REDIRECT_URI=http://127.0.0.1:5173/auth/callback
 # PORT=3000
 # REDIS_URL=redis://127.0.0.1:6380
 
-# Added in M1 and later
-SPOTIFY_MARKET=US          # ISO 3166-1 alpha-2 code of the users' country
-PUBLIC_ORIGIN=http://127.0.0.1:5173
-SESSION_SECRET=            # 32+ random bytes, base64
+# Used since M1
 TOKEN_ENC_KEY=             # 32 random bytes, base64 (AES-256-GCM)
-COOKIE_SECURE=false        # true behind HTTPS
-POPULAR_PROVIDER=spotify-search
+# SPOTIFY_MARKET=US        # ISO 3166-1 alpha-2 code of the users' country
+
+# Planned for M2
+POPULAR_PROVIDER=          # depends on D2
 SPOTIFY_CALL_BUDGET=60
 ```
+
+`SPOTIFY_REDIRECT_URI` also gives the public origin (for the Origin check) and the cookie mode: an HTTPS URI makes cookies `Secure` with the `__Host-` prefix. There is no `SESSION_SECRET`: the session ID is a random 256-bit value that only Redis maps to a session, so it needs no signature.
 
 `config.ts` validates these values at startup. The server stops with a clear message if a value is missing or not valid. For a deployment, `config.ts` also reads `<NAME>_FILE` variables, so secrets can come from Compose secrets in `/run/secrets/`.
 
@@ -625,7 +632,7 @@ Security:
 - Tokens are encrypted at rest in Redis with AES-256-GCM (WebCrypto). The key is `TOKEN_ENC_KEY`.
 - Session cookie: `HttpOnly`, `SameSite=Lax`. In production also `Secure` and the `__Host-` prefix.
 - OAuth `state` is bound to a cookie and to Redis, and is used one time.
-- Mutating routes accept JSON only and require an `Origin` header that equals `PUBLIC_ORIGIN`.
+- Mutating routes require an `Origin` header that equals the public origin (the origin of `SPOTIFY_REDIRECT_URI`).
 - Per-session rate limits on `/mixes/preview` and `/mixes`.
 - Logs never contain tokens, cookies or authorization codes.
 
@@ -684,6 +691,14 @@ M0 is done (2026-10-26). Results of the M0 checks:
 2. `vite build` runs under Bun 1.4.4 in the Docker build stage. `docker compose up` shows both services healthy.
 3. Found on the way: a Redis in WSL answered on `127.0.0.1:6379`, so the dev Redis moved to port 6380 (§10).
 
+M1 status (2026-10-26):
+- **Code:** done.
+  - Server: OAuth routes, encrypted sessions, token refresh with `invalid_grant` handling, the app token, the Spotify client, and the Redis limiter, circuit breaker and `cached()`.
+  - Web: sign-in, sign-out and `auth_error` messages.
+- **Tests:** 79 server tests and 12 web tests pass, including Redis integration tests against the dev Redis.
+- **Catalog live checks:** done. See [spike-results.md](spike-results.md).
+- **Still open:** sign-in with a real account, and the user-endpoint checks below.
+
 M1 live checks (one allowlisted account, small fixed call budget):
 
 1. How close is the Search order (`artist:"<name>"`) to Deezer's top list for 20 artists of different sizes? How many Deezer top tracks match by title?
@@ -717,12 +732,16 @@ Confirmed on 2026-10-26:
 - **D4:** local only.
 - **D5 to D7:** as recommended.
 
+**Open since the M1 checks:** D2 again.
+- Top Tracks still works for this app, and the Search order is a weak signal ([spike-results.md](spike-results.md)).
+- Proposal: use Top Tracks while this app has it. When it fails, fall back to the Search order, ranked by `popularity` while that field exists.
+
 | ID | Decision | Recommendation | Alternative |
 |---|---|---|---|
 | D1 | App architecture | **Hono API on Bun + SvelteKit SPA** (this plan), for three reasons:<br>• The server stays on Bun even if `bun --bun vite dev` fails on Windows (not yet verified).<br>• The backend does not depend on SvelteKit 3's new server adapter, which is weeks old.<br>• One image works on plain `http://127.0.0.1` and behind HTTPS, with no per-environment build. | One SvelteKit 3 app with the official `@sveltejs/adapter-bun` 1.0.0. The research report prefers this option: it has one process and no RPC layer. But it needs a build-time `paths.origin` for local HTTP: SvelteKit 3 removed `ORIGIN`, and form POSTs over plain HTTP fail with 403 (issue #17328). |
 | D2 | Source of "most played" tracks | **`spotify-search` as the default**, confirmed by the M1 check. It uses Spotify only and costs about 3 calls per artist. Spotify does not document the ranking. | `deezer-rank`: re-ranks with Deezer's real top list for 0–5 extra Spotify calls per artist. It is a gray area under Policy III.5, and Deezer allows non-commercial use only. The report's Deezer-first chain costs about 40 Spotify searches per 4-artist mix. |
 | D3 | Public app name | Keep `spot-mixer` as the repository name. Choose a display name without "Spot" or other "Spotify"-like words. | Keep the name and accept the risk while the app stays private. |
-| D4 | Hosting | **Local only** for the MVP (`127.0.0.1`). | A hosted HTTPS domain. Needs a TLS proxy, `COOKIE_SECURE=true`, secrets, a Redis password and one more redirect URI. |
+| D4 | Hosting | **Local only** for the MVP (`127.0.0.1`). | A hosted HTTPS domain. Needs a TLS proxy, an HTTPS redirect URI (cookies then get `Secure`), secrets, a Redis password and one more redirect URI. |
 | D5 | Saved mix recipes ("refresh this mix later") | **Defer to M4.** Store only the recipe (artist IDs and options) in Redis with a TTL. | Add SQLite or Postgres if history becomes a core feature. |
 | D6 | History import (lifetime play counts) | **M4, optional.** The browser parses the files (§7.4). | Leave it out. My Mix then uses the API signals only (about 1 year). |
 | D7 | Market | **One market for all users** (`SPOTIFY_MARKET`, the owner's country). Catalog reads use the app token and one shared cache. | A market per user, with per-user catalog caches. Only needed if the users live in different countries. |

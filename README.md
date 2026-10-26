@@ -17,7 +17,7 @@ The plan and the Spotify API research are in [docs/PLAN.md](docs/PLAN.md).
    - `http://127.0.0.1:5173/auth/callback` (development)
    - `http://127.0.0.1:3000/auth/callback` (Docker)
 3. In **User Management**, add each user with the email of their Spotify account. The limit is 5 users.
-4. Copy `.env.example` to `.env`. Set `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` and `SPOTIFY_REDIRECT_URI`.
+4. Copy `.env.example` to `.env`. Set `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI` and `TOKEN_ENC_KEY`. The example file shows how to make the key.
 
 Use `127.0.0.1`, not `localhost`. Spotify rejects `localhost` in redirect URIs.
 
@@ -39,6 +39,15 @@ The development Redis uses host port 6380, because another local Redis (for exam
 bun run check   # type checks, Prettier, ESLint
 bun run test    # bun test (server) and Vitest (web)
 ```
+
+## Spotify API checks
+
+These scripts call the real Spotify API. They only read, and each has a small fixed call budget. Run them from `apps/server` while the development Redis is up:
+
+- `bun run check:capabilities` shows which Spotify endpoints and page sizes this app still has (7 calls).
+- `bun run spike:catalog` repeats the M1 catalog checks (about 90 calls).
+
+Results are in [docs/spike-results.md](docs/spike-results.md). The tests never call the live API.
 
 ## Production-like run
 

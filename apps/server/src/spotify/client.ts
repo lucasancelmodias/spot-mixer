@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import type { FetchLike } from '../lib/http';
+import type { CallBudget } from './budget';
 import {
 	type AccessProblem,
 	SpotifyAccessError,
@@ -29,13 +30,16 @@ export type SpotifyRequest<T> = {
 	query?: Query;
 	body?: unknown;
 	schema: z.ZodType<T>;
+	/** Counts every call of one operation, including retries (plan §5.4). */
+	budget?: CallBudget;
 };
 
-// Endpoints that new Development Mode apps cannot use (plan §5.3). The client refuses them
-// without a call, so that a mistake costs no quota.
+// Endpoints that this app must never call (plan §5.3): removed for this app (checked with
+// `bun run check:capabilities`) or replaced by newer paths. The client refuses them without a call.
+// Top Tracks, batch reads and pages of 50 are not here: the catalog uses them while they work
+// (see capabilities.ts).
 const BLOCKED_ROUTES = [
-	/^GET \/artists\/[^/]+\/(top-tracks|related-artists)$/,
-	/^GET \/(artists|albums|tracks)$/,
+	/^GET \/artists\/[^/]+\/related-artists$/,
 	/^GET \/(recommendations|audio-features|audio-analysis)(\/|$)/,
 	/^GET \/(browse|markets)(\/|$)/,
 	/^(GET|POST) \/users\/[^/]+\/playlists$/,
@@ -43,21 +47,13 @@ const BLOCKED_ROUTES = [
 	/^[A-Z]+ \/playlists\/[^/]+\/tracks$/
 ];
 
-// Page-size maximums for new Development Mode apps. A larger `limit` returns 400.
-const LIMIT_MAXIMUMS: Array<[RegExp, number]> = [
-	[/^\/search$/, 10],
-	[/^\/artists\/[^/]+\/albums$/, 10]
-];
-const DEFAULT_LIMIT_MAXIMUM = 50;
+/** The largest `limit` of any Spotify list endpoint. New apps accept only 10 for some endpoints. */
+export const LIMIT_MAXIMUM = 50;
 
 const MAX_SERVER_RETRIES = 3;
 const SHORT_RETRY_AFTER_SECONDS = 30;
 const SECOND_RATE_LIMIT_BLOCK_MS = 15 * 60_000;
 const QUOTA_BLOCK_MS = 60 * 60_000;
-
-export function limitMaximum(path: string): number {
-	return LIMIT_MAXIMUMS.find(([pattern]) => pattern.test(path))?.[1] ?? DEFAULT_LIMIT_MAXIMUM;
-}
 
 /** Method and path with Spotify IDs replaced by `{id}`, for logs and errors. */
 export function routeOf(method: string, path: string): string {
@@ -84,10 +80,9 @@ export class SpotifyClient {
 			throw new SpotifyAccessError('blocked_endpoint', route);
 		}
 		const limit = request.query?.limit;
-		const maximum = limitMaximum(request.path);
-		if (typeof limit === 'number' && limit > maximum) {
+		if (typeof limit === 'number' && limit > LIMIT_MAXIMUM) {
 			throw new SpotifyRequestError(
-				`limit ${limit} is above the maximum ${maximum} for ${route}`,
+				`limit ${limit} is above the maximum ${LIMIT_MAXIMUM} for ${route}`,
 				400
 			);
 		}
@@ -100,6 +95,7 @@ export class SpotifyClient {
 		let serverFailures = 0;
 
 		for (;;) {
+			request.budget?.spend(route);
 			await this.options.guard.acquire();
 			const started = this.options.now();
 			let res: Response;

@@ -3,13 +3,14 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "bun --env-file=../../.env --watch src/index.ts",
+		"dev": "cd ../.. && bun --env-file=.env --watch apps/server/src/index.ts",
 		"build": "bun build src/index.ts --target=bun --outdir=dist",
 		"start": "bun dist/index.js",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test",
 		"spike:catalog": "bun --env-file=../../.env scripts/spike-catalog.ts",
-		"check:capabilities": "bun --env-file=../../.env scripts/check-capabilities.ts"
+		"check:capabilities": "bun --env-file=../../.env scripts/check-capabilities.ts",
+		"spike:user": "bun --env-file=../../.env scripts/spike-user.ts"
 	},
 	"dependencies": {
 		"@hono/bun": "^1.0.1",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, getHealth, getMe, logout } from './api';
+import { ApiError, getHealth, getMe, logout, previewMix } from './api';
 
 function respond(status: number, body?: unknown) {
 	const calls: { input: string; init?: RequestInit }[] = [];
@@ -55,6 +55,42 @@ describe('getMe', () => {
 
 		expect(error).toBeInstanceOf(ApiError);
 		expect(error).toMatchObject({ status: 503, code: 'spotify_unavailable' });
+	});
+});
+
+describe('previewMix', () => {
+	const recipe = {
+		sources: [],
+		options: {
+			maxTracks: null,
+			order: 'grouped' as const,
+			noAdjacentSameArtist: true,
+			exclude: [],
+			seed: 1
+		}
+	};
+
+	it('posts the recipe as JSON and returns the preview', async () => {
+		const { fetchFn, calls } = respond(200, { tracks: [], warnings: [], spotifyCalls: 0 });
+
+		expect(await previewMix(recipe, fetchFn)).toEqual({
+			tracks: [],
+			warnings: [],
+			spotifyCalls: 0
+		});
+		expect(calls[0]?.input).toBe('/api/mixes/preview');
+		expect(calls[0]?.init?.method).toBe('POST');
+		expect(JSON.parse(String(calls[0]?.init?.body))).toEqual(recipe);
+	});
+
+	it('keeps the error body, for example the time until Spotify works again', async () => {
+		const until = '2026-10-26T15:30:00.000Z';
+		const error = await previewMix(
+			recipe,
+			respond(503, { error: 'spotify_unavailable', until }).fetchFn
+		).catch((e: unknown) => e);
+
+		expect(error).toMatchObject({ status: 503, code: 'spotify_unavailable', body: { until } });
 	});
 });
 

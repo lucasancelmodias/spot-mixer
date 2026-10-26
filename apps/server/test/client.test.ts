@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
-import { limitMaximum, routeOf, SpotifyClient } from '../src/spotify/client';
+import { CallBudget, CallBudgetExceededError } from '../src/spotify/budget';
+import { LIMIT_MAXIMUM, routeOf, SpotifyClient } from '../src/spotify/client';
 import {
 	SpotifyAccessError,
 	SpotifyAuthError,
@@ -95,31 +96,38 @@ describe('SpotifyClient requests', () => {
 		expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ name: 'Mix', public: false });
 	});
 
-	it('refuses a limit above the maximum without a call', async () => {
+	it('refuses a limit above 50 without a call', async () => {
 		const { client, calls } = setup(() => json({ id: 'x' }));
 
 		await expect(
-			client.request(tokenSource(), { path: '/search', query: { limit: 11 }, schema: idSchema })
+			client.request(tokenSource(), { path: '/search', query: { limit: 51 }, schema: idSchema })
 		).rejects.toBeInstanceOf(SpotifyRequestError);
 		await expect(
 			client.request(tokenSource(), {
-				path: `/artists/${ID}/albums`,
-				query: { limit: 20 },
+				path: '/me/top/artists',
+				query: { limit: 60 },
 				schema: idSchema
 			})
 		).rejects.toBeInstanceOf(SpotifyRequestError);
 		expect(calls).toHaveLength(0);
-		expect(limitMaximum('/me/top/artists')).toBe(50);
+		expect(LIMIT_MAXIMUM).toBe(50);
 	});
 
-	it('refuses endpoints that are blocked for new apps without a call', async () => {
+	it('sends Top Tracks and batch reads: the catalog uses them while the app has them', async () => {
+		const { client, calls } = setup(() => json({ id: 'x' }));
+
+		await client.request(tokenSource(), { path: `/artists/${ID}/top-tracks`, schema: idSchema });
+		await client.request(tokenSource(), { path: '/albums', query: { ids: ID }, schema: idSchema });
+
+		expect(calls).toHaveLength(2);
+	});
+
+	it('refuses endpoints that are blocked for this app without a call', async () => {
 		const { client, calls } = setup(() => json({ id: 'x' }));
 		const blocked = [
-			{ path: `/artists/${ID}/top-tracks` },
 			{ path: `/artists/${ID}/related-artists` },
 			{ path: '/recommendations' },
 			{ path: `/audio-features/${ID}` },
-			{ path: '/tracks', query: { ids: ID } },
 			{ path: '/users/someone/playlists', method: 'POST' as const },
 			{ path: `/playlists/${ID}/tracks`, method: 'POST' as const }
 		];
@@ -132,6 +140,22 @@ describe('SpotifyClient requests', () => {
 			expect((error as SpotifyAccessError).problem).toBe('blocked_endpoint');
 		}
 		expect(calls).toHaveLength(0);
+	});
+
+	it('counts calls and retries against the budget and stops before the call', async () => {
+		const { client, calls } = setup((_url, _init, call) =>
+			call === 1 ? json({}, 503) : json({ id: 'me' })
+		);
+		const budget = new CallBudget(2);
+
+		await client.request(tokenSource(), { path: '/me', schema: idSchema, budget });
+		const error = await rejection(
+			client.request(tokenSource(), { path: '/me', schema: idSchema, budget })
+		);
+
+		expect(budget.spent).toBe(2);
+		expect(error).toBeInstanceOf(CallBudgetExceededError);
+		expect(calls).toHaveLength(2);
 	});
 
 	it('names routes without IDs', () => {

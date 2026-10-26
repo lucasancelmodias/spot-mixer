@@ -1,6 +1,6 @@
 # spot-mixer — implementation plan
 
-> Status: **approved** on 2026-10-26. M0 is done. The M1 code is done; the live sign-in check is still open (§14).
+> Status: **approved** on 2026-10-26. M0 and M1 are done. The M2 (Artist Mix) code is done; saving a mix from the browser is still to check (§14).
 > Research behind this plan: [Spotify Web API and mixer stack](reports/Spotify%20Web%20API%20and%20mixer%20stack.md). The report gives a source and a date for every fact. The raw notes are in `docs/research_notes/`.
 > Decisions are in §16. Facts that need a live check are in the M1 checks (§14).
 
@@ -224,9 +224,9 @@ Scopes follow Spotify's least-scope rule: do not ask for a scope before its feat
 | Profile | `GET /me` | user | — | Use `account_id` as the user key |
 | Artist autocomplete | `GET /search?type=artist` | app | 10, offset ≤ 1000 | Debounce 300 ms, at least 2 characters |
 | Artist details | `GET /artists/{id}` | app | — | No `popularity` or `followers`. `genres` can be missing. |
-| Popular tracks (default provider) | `GET /search?type=track&q=artist:"<name>"` | app | 10 | 3 pages. Keep tracks that include the artist ID (§5.5). |
-| Album list | `GET /artists/{id}/albums?include_groups=album,single` | app | 10 | Load more pages on demand. `album_group` is removed, but `album_type` still labels each result. Do not add `appears_on` to the same request. |
-| Album tracks | `GET /albums/{id}/tracks` | app | 50 | 1 call per album (no batch). Simplified tracks: no ISRC. The album metadata comes from the album list. |
+| Popular tracks | `GET /artists/{id}/top-tracks`, then `GET /search?type=track&q=artist:"<name>"` | app | 10 top tracks; Search 50 (10 after a refusal) | Top Tracks while this app has it; Search fills up and is the fallback (§5.5). |
+| Album list | `GET /artists/{id}/albums?include_groups=album,single` | app | 50 (10 after a refusal) | All pages, at most 200 releases. `album_type` labels each result. Do not add `appears_on` to the same request. |
+| Album tracks | `GET /albums?ids=` (20 per call), else `GET /albums/{id}` | app | First 50 tracks per album | Batch reads while this app has them (§5.5). Simplified tracks: no ISRC. |
 | ISRC lookup (only for `deezer-rank`) | `GET /search?type=track&q=isrc:<code>` | app | 10 | Documented, but untested for a new app (M1) |
 | Top artists, top tracks | `GET /me/top/{type}?time_range=short_term\|medium_term\|long_term` | user | 50 | About 50 items per range. Reports say offsets ≥ 50 return nothing. |
 | Recent plays | `GET /me/player/recently-played` | user | 50 | Only the last 50 plays |
@@ -279,22 +279,26 @@ Request budget for each operation (default cap: 60 Spotify calls, configurable).
 | Save a 60-track mix | 1 create + 1 add |
 | My Mix analysis | 3 + 3 + 1 + ≤ 4 + ≤ 10 = ≤ 21 (§7.1) |
 
-### 5.5 Popular-tracks providers
+### 5.5 Popular tracks and capabilities (D2)
 
-```ts
-interface PopularTracksProvider {
-  readonly name: "spotify-search" | "deezer-rank" | "my-top";
-  topTracks(artist: ArtistRef, opts: { limit: number; market: string }): Promise<RankedTrack[]>;
-}
-```
+**Capabilities** (`spotify/capabilities.ts`). This app still has three features that Spotify removed for apps created after 2026-02-11: Top Tracks, batch reads and pages of 50 ([spike-results.md](spike-results.md)).
+- The catalog uses a capability while it works.
+- When Spotify refuses it, the catalog records the loss in Redis (`cap:lost:{name}`, 6 hours) and uses the fallback at once. A refusal is a 404 or a plain 403, or for page size a 400 "Invalid limit".
+- After 6 hours, the catalog tries the capability again. `bun run check:capabilities` shows the current state.
 
-| Provider | Method | Extra Spotify calls | Terms risk | Status |
-|---|---|---|---|---|
-| `spotify-search` | Search `type=track`, `q=artist:"<name>"`, 3 pages of 10. Keep tracks whose `artists[].id` includes the artist. Keep Spotify's result order. | 3 per artist (cached 24 h) | None | **Default** |
-| `deezer-rank` | Get the `spotify-search` candidates. Sort them by the order of Deezer `GET /artist/{id}/top` (up to 99 tracks). Match by normalized title. For up to 5 Deezer top tracks with no match, get the ISRC from Deezer `GET /track/{id}` and resolve it with a Spotify `isrc:` search. | 0 to 5 per artist | Gray area: Policy III.5. The Deezer terms allow non-commercial use only and forbid association with other brands. | Off by default (D2) |
-| `my-top` | The user's top tracks (3 time ranges) that include this artist. | 0 more (shared cache) | None | Used by My Mix and the "Your favorites" source |
+**Popular tracks** (`Catalog.popularTracks`, M2):
 
-Rules for `deezer-rank`:
+| Step | Source | Spotify calls | When |
+|---|---|---|---|
+| 1 | `GET /artists/{id}/top-tracks`: Spotify's own ranking, up to 10 tracks | 1 per artist (cached 24 h) | While the app has Top Tracks |
+| 2 | Search `type=track`, `q=artist:"<name>"`, filtered by artist ID. Ranked by `popularity` while every result has it, else in Spotify's order. | 1 page of 50, or 3 pages of 10 (cached 24 h) | When more than the top tracks are needed, or without Top Tracks |
+| Later option | `deezer-rank`: Deezer's top list re-ranks the Search results | 0–5 | Not built. Only if Spotify removes Top Tracks and `popularity`. It is a gray area under Policy III.5, and Deezer allows non-commercial use only. |
+
+The steps share one duplicate check: track ID, ISRC, or normalized title plus primary artist.
+
+"Your favorites" (`Listening.favorites`) is the user's top tracks by the artist: 3 time ranges, 2 pages each, cached 1 hour.
+
+Rules for `deezer-rank`, if it is built later:
 
 - **Artist lookup:** `GET https://api.deezer.com/search/artist?q=<name>`, then take the exact normalized name match. One artist can have two Deezer IDs.
   - The first matched tracks are a free check. They must include the chosen Spotify artist ID; if they do not, try the next Deezer candidate.
@@ -302,8 +306,6 @@ Rules for `deezer-rank`:
 - **Data flows inward only (Terms IV.2.5):** Deezer receives only an artist name and Deezer track IDs. It never receives Spotify IDs or user data.
 - **Branding:** the UI labels the result "estimated popularity", with no Deezer branding.
 - **Version duplicates:** Deezer top lists contain several versions of one song, and the dedupe step (§6.2) removes them.
-
-The research report proposes another order: Deezer first, with an `isrc:` search for every track. That costs about 40 Spotify searches for a 4-artist mix, and the `isrc:` filter is untested for new apps. This plan keeps Spotify calls lower and decides after the M1 check (D2).
 
 **Track matcher** (used by `deezer-rank` and the history import):
 
@@ -480,8 +482,7 @@ API routes are under `/api`. OAuth routes are under `/auth`, to match the regist
 | GET | `/api/search/artists?q=` | Artist autocomplete |
 | GET | `/api/artists/:id` | Artist details |
 | GET | `/api/artists/:id/popular?limit=` | Popular tracks (provider chain) |
-| GET | `/api/artists/:id/albums?page=` | Albums and singles |
-| GET | `/api/albums/:id/tracks` | Album tracks |
+| GET | `/api/artists/:id/albums` | Albums and singles (all pages, at most 200) |
 | POST | `/api/insights/artists` | My Mix ranking with reasons (optional body: history totals) |
 | POST | `/api/mixes/preview` | Run the engine on a recipe |
 | POST | `/api/mixes` | Create the playlist and add the tracks |
@@ -503,7 +504,7 @@ Svelte 5 with runes. State lives in `.svelte.ts` modules. SvelteKit runs in SPA 
 | `/settings` | Renew access, disconnect, delete my data, (later) history import |
 | `/privacy` | Privacy policy (Policy I.1) |
 
-Shared components: `ArtistSearch`, `BucketPanel`, `AlbumPicker`, `MixOptions`, `TrackList` (move, remove, lock), `SaveDialog`, `QuotaBanner`.
+Shared components (M2): `ArtistSearch`, `BucketItem`, `AlbumPicker`, `MixOptionsForm`, `TrackList` (move, remove), `SaveDialog`. Not built yet: track locking, a separate `QuotaBanner` (quota errors show as messages for now).
 
 Spotify branding rules (design guidelines):
 
@@ -536,12 +537,15 @@ Every key has a TTL, so no Spotify data is stored without a time limit (Terms IV
 | `c:sp:search:artist:{q}:{m}` | string | 6 h | Search results |
 | `c:sp:artist:{id}` | string | 24 h | Artist |
 | `c:sp:artist-albums:{id}:{m}:{page}` | string | 24 h | Album page |
-| `c:sp:album-tracks:{id}:{m}` | string | 24 h | Album tracks |
-| `c:pop:{provider}:{artistId}:{m}` | string | 24 h | Ranked popular tracks |
+| `c:sp:album:{id}:{m}` | string | 24 h | Album with its first 50 tracks |
+| `c:pop:top:{artistId}:{m}` | string | 24 h | Top Tracks of the artist |
+| `c:pop:search:{artistId}:{m}` | string | 24 h | Search results of the artist, ranked |
+| `cap:lost:{capability}` | string | 6 h | A capability that Spotify refused (§5.5) |
 | `c:match:{isrc}:{m}` | string | 24 h | ISRC → Spotify URI, or "no match" |
 | `c:dz:artist:{name}` | string | 7 d | Deezer artist ID (Deezer data; only with D2) |
 | `c:dz:top:{deezerId}` | string | 24 h | Deezer top list (only with D2) |
-| `c:u:{uid}:top:{type}:{range}` | string | 1 h | User top items |
+| `c:u:{uid}:me` | string | 5 min | Profile for `/api/me` |
+| `c:u:{uid}:top:{type}:{range}` | string | 1 h | User top items (top tracks: 2 pages, 100 tracks) |
 | `c:u:{uid}:recent` | string | 15 min | Recent plays |
 | `c:u:{uid}:followed` | string | 6 h | Followed artist IDs |
 | `c:u:{uid}:saved` | string | 6 h | Saved tracks (capped) |
@@ -691,13 +695,28 @@ M0 is done (2026-10-26). Results of the M0 checks:
 2. `vite build` runs under Bun 1.4.4 in the Docker build stage. `docker compose up` shows both services healthy.
 3. Found on the way: a Redis in WSL answered on `127.0.0.1:6379`, so the dev Redis moved to port 6380 (§10).
 
-M1 status (2026-10-26):
-- **Code:** done.
+M1 is done (2026-10-26):
+- **Code:**
   - Server: OAuth routes, encrypted sessions, token refresh with `invalid_grant` handling, the app token, the Spotify client, and the Redis limiter, circuit breaker and `cached()`.
   - Web: sign-in, sign-out and `auth_error` messages.
-- **Tests:** 79 server tests and 12 web tests pass, including Redis integration tests against the dev Redis.
-- **Catalog live checks:** done. See [spike-results.md](spike-results.md).
-- **Still open:** sign-in with a real account, and the user-endpoint checks below.
+- **Live checks:** sign-in with the owner's account works. The catalog and user-endpoint results are in [spike-results.md](spike-results.md).
+- **Still open:** whether the owner uses one of the 5 user places. PKCE with a client secret was not tested: the app uses the confidential flow.
+
+M2 status (2026-10-26):
+- **Server code:** done. It has capabilities with fallbacks (§5.5), the catalog service, "Your favorites", the mix engine (§6), the playlist save, and the routes in §8 with a call budget per request.
+- **Web code:** done. The `/mix/artists` page has:
+  - artist search
+  - the bucket, with its localStorage draft
+  - the album picker and the mix options
+  - the preview list (move, remove, shuffle again) and the save dialog
+- **Tests:** 114 server tests and 26 web tests.
+- **Live check** (owner session, read-only):
+  - The preview mixed Daft Punk (5 popular tracks), 4 random tracks from one Radiohead album and Anitta (5 popular tracks).
+  - It gave 14 tracks in 877 ms, with 8 Spotify calls and no neighbors from one artist.
+  - The same preview from the cache used 0 calls.
+- **Still open:**
+  - Save a mix from the browser and check the playlist in Spotify. This is the "done when" check of M2.
+  - Track locking (§3.1) is not built yet.
 
 M1 live checks (one allowlisted account, small fixed call budget):
 
@@ -713,9 +732,9 @@ M1 live checks (one allowlisted account, small fixed call budget):
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Spotify removes more endpoints or fields. It changed rules in 2024, 2025 and 2026, and once changed a page limit with no changelog entry. | High | High | Provider chain, lenient parsing, 403 capability cache, `check:spotify-spec`, watch the developer changelog |
+| Spotify removes more endpoints or fields. It changed rules in 2024, 2025 and 2026, and once changed a page limit with no changelog entry. | High | High | Capabilities with fallbacks (§5.5), lenient parsing, `check:capabilities`, `check:spotify-spec`, watch the developer changelog |
 | A quota lockout blocks the app for hours | Medium | High | No retries on quota errors, budgets, limiter, circuit breaker, no live API in tests |
-| The Search order is a poor "popular" signal | Medium | Medium | M1 check first. If it is poor, choose `deezer-rank` (D2) or make "Your favorites" the default. |
+| The Search order is a poor "popular" signal | Measured: weak (mean overlap 4.95 of 10) | Medium | The app uses Top Tracks and `popularity` while it has them (D2). If Spotify removes both, build `deezer-rank`. |
 | The `isrc:` filter does not work for new apps | Medium | Low | Affects only the `deezer-rank` fallback. Title matching still works. |
 | A terms problem (external data, ranking, name, branding) | Low for a 5-user personal app | High if the app is shared | §12 rules, D2 and D3, review before sharing |
 | The owner's Premium lapses | Low | High | Every call returns 403, and recovery can take hours after renewal. Document it in the README. |
@@ -727,19 +746,15 @@ M1 live checks (one allowlisted account, small fixed call budget):
 
 Confirmed on 2026-10-26:
 - **D1:** a separate Hono API.
-- **D2:** `spotify-search` as the default, with `deezer-rank` as an option.
+- **D2:** changed after the M1 checks. The app uses what it still has: Top Tracks for popular tracks, plus batch reads and pages of 50, each with an automatic fallback (§5.5). The first choice, "Search order as the default", is now the fallback.
 - **D3:** keep the name `spot-mixer`, because the app stays private.
 - **D4:** local only.
 - **D5 to D7:** as recommended.
 
-**Open since the M1 checks:** D2 again.
-- Top Tracks still works for this app, and the Search order is a weak signal ([spike-results.md](spike-results.md)).
-- Proposal: use Top Tracks while this app has it. When it fails, fall back to the Search order, ranked by `popularity` while that field exists.
-
 | ID | Decision | Recommendation | Alternative |
 |---|---|---|---|
 | D1 | App architecture | **Hono API on Bun + SvelteKit SPA** (this plan), for three reasons:<br>• The server stays on Bun even if `bun --bun vite dev` fails on Windows (not yet verified).<br>• The backend does not depend on SvelteKit 3's new server adapter, which is weeks old.<br>• One image works on plain `http://127.0.0.1` and behind HTTPS, with no per-environment build. | One SvelteKit 3 app with the official `@sveltejs/adapter-bun` 1.0.0. The research report prefers this option: it has one process and no RPC layer. But it needs a build-time `paths.origin` for local HTTP: SvelteKit 3 removed `ORIGIN`, and form POSTs over plain HTTP fail with 403 (issue #17328). |
-| D2 | Source of "most played" tracks | **`spotify-search` as the default**, confirmed by the M1 check. It uses Spotify only and costs about 3 calls per artist. Spotify does not document the ranking. | `deezer-rank`: re-ranks with Deezer's real top list for 0–5 extra Spotify calls per artist. It is a gray area under Policy III.5, and Deezer allows non-commercial use only. The report's Deezer-first chain costs about 40 Spotify searches per 4-artist mix. |
+| D2 | Source of "most played" tracks | **Decided:** Top Tracks while this app has it, then Search ranked by `popularity`, then Search order (§5.5). | `deezer-rank`: re-ranks with Deezer's real top list for 0–5 extra Spotify calls per artist. It is a gray area under Policy III.5, and Deezer allows non-commercial use only. |
 | D3 | Public app name | Keep `spot-mixer` as the repository name. Choose a display name without "Spot" or other "Spotify"-like words. | Keep the name and accept the risk while the app stays private. |
 | D4 | Hosting | **Local only** for the MVP (`127.0.0.1`). | A hosted HTTPS domain. Needs a TLS proxy, an HTTPS redirect URI (cookies then get `Secure`), secrets, a Redis password and one more redirect URI. |
 | D5 | Saved mix recipes ("refresh this mix later") | **Defer to M4.** Store only the recipe (artist IDs and options) in Redis with a TTL. | Add SQLite or Postgres if history becomes a core feature. |

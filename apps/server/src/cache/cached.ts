@@ -47,6 +47,22 @@ export async function cached<T>(
 	}
 }
 
+/** Reads one cached JSON value, for batch reads. Returns undefined on a miss or a Redis problem. */
+export async function readCached<T>(kv: KV, key: string): Promise<T | undefined> {
+	const raw = await quietly(() => kv.get(key), key);
+	return raw == null || raw === MISS ? undefined : (JSON.parse(raw) as T);
+}
+
+/** Writes one JSON value, for batch reads. A Redis problem is logged, not thrown. */
+export async function writeCached(
+	kv: KV,
+	key: string,
+	value: unknown,
+	ttlSeconds: number
+): Promise<void> {
+	await quietly(() => kv.set(key, JSON.stringify(value), ttlSeconds), key);
+}
+
 function decode<T>(raw: string): T | null {
 	return raw === MISS ? null : (JSON.parse(raw) as T);
 }

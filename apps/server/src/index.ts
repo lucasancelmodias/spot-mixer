@@ -1,12 +1,16 @@
 import { createApp } from './app';
 import { RedisKV } from './cache/kv';
 import { createRedis, redisPinger } from './cache/redis';
+import { Catalog } from './catalog/catalog';
 import { ConfigError, loadConfig } from './config';
 import { sleep } from './lib/async';
 import { globalFetch } from './lib/http';
+import { Listening } from './listening/listening';
 import { TokenCipher } from './session/crypto';
 import { SessionStore } from './session/store';
 import { SessionTokens } from './session/tokens';
+import { AppTokenSource } from './spotify/app-token';
+import { KVCapabilities } from './spotify/capabilities';
 import { SpotifyClient } from './spotify/client';
 import { RedisSpotifyGuard } from './spotify/guard';
 import { SpotifyOAuth } from './spotify/oauth';
@@ -41,6 +45,14 @@ const guard = new RedisSpotifyGuard({ redis, now, sleep });
 const spotify = new SpotifyClient({ fetch: globalFetch, guard, sleep, now, log });
 const sessions = new SessionStore(kv, now);
 const sessionTokens = new SessionTokens({ store: sessions, oauth, cipher, now });
+const catalog = new Catalog({
+	spotify,
+	appToken: new AppTokenSource({ oauth, kv, cipher, now }),
+	kv,
+	caps: new KVCapabilities(kv, log),
+	market: config.SPOTIFY_MARKET
+});
+const listening = new Listening({ spotify, kv });
 
 const app = createApp({
 	pingRedis: redisPinger(redis),
@@ -51,6 +63,9 @@ const app = createApp({
 	spotify,
 	guard,
 	cipher,
+	catalog,
+	listening,
+	callBudget: config.SPOTIFY_CALL_BUDGET,
 	publicOrigin: config.publicOrigin,
 	cookieSecure: config.cookieSecure,
 	now,

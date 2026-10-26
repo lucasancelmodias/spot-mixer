@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { getHealth, getMe, logout } from '#lib/api.js';
 	import { authErrorMessage } from '#lib/auth-errors.js';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
@@ -39,6 +40,17 @@
 		<p>Checking your session…</p>
 	{:then user}
 		{#if user}
+			<section class="modes" aria-label="Mix modes">
+				<a class="mode" href={resolve('/mix/artists')}>
+					<strong>Artist Mix</strong>
+					<span>Pick 2 or more artists. Use their popular tracks, your favorites, or albums.</span>
+				</a>
+				<div class="mode disabled" aria-disabled="true">
+					<strong>My Mix</strong>
+					<span>A mix of your most-listened artists. Coming in milestone M3.</span>
+				</div>
+			</section>
+
 			<section class="account" aria-label="Spotify account">
 				{#if user.imageUrl}
 					<img src={user.imageUrl} alt="" width="48" height="48" />
@@ -77,9 +89,46 @@
 
 <style>
 	main {
-		max-width: 40rem;
+		max-width: 56rem;
 		margin: 0 auto;
-		padding: 2rem 1rem;
+		padding: 1.5rem 1rem 3rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	h1,
+	p {
+		margin: 0;
+	}
+
+	.modes {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+		gap: 1rem;
+	}
+
+	.mode {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 1rem;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		color: inherit;
+		text-decoration: none;
+	}
+
+	a.mode:hover {
+		border-color: var(--accent);
+	}
+
+	.mode span {
+		color: var(--muted);
+	}
+
+	.mode.disabled {
+		opacity: 0.6;
 	}
 
 	.account {
@@ -96,26 +145,7 @@
 		margin: 0.25rem 0;
 	}
 
-	.hint {
-		color: #57606a;
-		font-size: 0.875rem;
-	}
-
-	.connect {
-		display: inline-block;
-		padding: 0.625rem 1.25rem;
-		border-radius: 999px;
-		background: #1db954;
-		color: #000;
-		font-weight: 600;
-		text-decoration: none;
-	}
-
-	.error {
-		color: #cf222e;
-	}
-
 	.status {
-		margin-top: 2rem;
+		margin-top: 1rem;
 	}
 </style>

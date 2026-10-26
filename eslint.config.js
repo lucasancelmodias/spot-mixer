@@ -20,7 +20,17 @@ export default defineConfig(
 		rules: {
 			// typescript-eslint recommends turning off no-undef for TypeScript projects.
 			// See https://typescript-eslint.io/troubleshooting/faqs/eslint/#i-get-errors-from-the-no-undef-rule-about-global-variables-not-being-defined-even-though-there-are-no-typescript-errors
-			'no-undef': 'off'
+			'no-undef': 'off',
+			// Allow `const { removed, ...rest } = value` and names that start with "_" on purpose.
+			'@typescript-eslint/no-unused-vars': [
+				'error',
+				{
+					ignoreRestSiblings: true,
+					argsIgnorePattern: '^_',
+					varsIgnorePattern: '^_',
+					destructuredArrayIgnorePattern: '^_'
+				}
+			]
 		}
 	},
 	{

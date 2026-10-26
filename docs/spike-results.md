@@ -87,13 +87,27 @@ The low results come from artists with many collaborations and guest appearances
 | 1 | Is the Search order close to Deezer's top list? | Not reliably: mean overlap 4.95 of 10, and 0–2 for 6 of 20 artists. |
 | 2 | Does the `isrc:` filter work? | Yes, 5 of 5. |
 | 3 | Do full track objects include ISRCs and `is_playable`? | Yes, 341 of 341. |
-| 4 | Can `/me/top/{type}` page past 50 items? | Not tested yet: needs a signed-in user. |
+| 4 | Can `/me/top/{type}` page past 50 items? | Yes: `offset=50` returns 50 more (see "User endpoints"). |
 | 5 | Do artist objects include `genres`? | Yes, for this app. |
 | 6 | Does the owner use one of the 5 user places? | The API cannot show this. Check User Management in the Dashboard. |
 | 7 | Does Spotify accept PKCE with a client secret? | Not tested. The app uses the confidential Authorization Code flow. |
 | 8 | Requests per operation | Catalog check: about 4.5 calls per artist. Login: 1 Web API call. `/api/me`: 1 call per 5 minutes per user. |
 
-## Still open (needs a signed-in user)
+## User endpoints (`spike:user`, with the owner's session)
 
-- Login end to end, `/api/me` with a real account, and a token refresh after 1 hour.
-- User endpoints: depth of `/me/top/{type}`, `/me/player/recently-played`, `/me/following`, `/me/tracks`.
+`bun run spike:user` uses the newest session in Redis and makes 13 calls. It reads Spotify data only, plus one forced token refresh. It prints counts and field presence only.
+
+| Check | Result |
+|---|---|
+| Sign-in end to end, `/api/me` | Works (owner account, 2026-10-26) |
+| Granted scopes | All 5 MVP scopes |
+| Forced token refresh, then `GET /me` | Works |
+| `GET /me` fields | `account_id` and `followers` present. `country`, `product`, `email` and `explicit_content` absent: the app does not ask for `user-read-private` or `user-read-email`. |
+| `/me/top/artists`, 50 per call | Totals: 103 (short), 197 (medium), 384 (long). `genres` on 47–48 of 50; `popularity` on all. |
+| `/me/top/tracks`, 50 per call | Totals: 1,303 (short), 2,663 (medium), 5,839 (long). `popularity` on all. |
+| Paging past 50 (`offset=50`, long term) | Works: 50 more artists and 50 more tracks. Community reports of a hard cap at 50 do not apply to this app. |
+| `/me/player/recently-played` | 50 plays, covering 12 hours |
+| `/me/following?type=artist` | 31 artists |
+| `/me/tracks` | 257 saved tracks |
+
+The owner-seat question is still open: the API cannot show it.

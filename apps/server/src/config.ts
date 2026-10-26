@@ -20,6 +20,8 @@ const envSchema = z.object({
 	SPOTIFY_MARKET: text
 		.regex(/^[A-Z]{2}$/, 'must be a two-letter country code, for example US')
 		.default('US'),
+	/** Spotify calls allowed for one request, for example one mix preview (plan §5.4). */
+	SPOTIFY_CALL_BUDGET: z.coerce.number().int().min(10).max(500).default(60),
 	/** 32 random bytes, base64. Encrypts the Spotify tokens in Redis. */
 	TOKEN_ENC_KEY: text.refine(
 		(value) => Buffer.from(value, 'base64').length === 32,

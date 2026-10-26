@@ -1,9 +1,19 @@
 <script lang="ts">
-	import type { SaveMixResponse } from '@spot-mixer/shared';
+	import { resolve } from '$app/paths';
+	import type { SaveMixRequest, SaveMixResponse } from '@spot-mixer/shared';
 	import { ApiError, saveMix } from '#lib/api.js';
 	import { describeError } from '#lib/errors.js';
 
-	let { name = $bindable(), trackUris }: { name: string; trackUris: string[] } = $props();
+	let {
+		name = $bindable(),
+		trackUris,
+		remember
+	}: {
+		name: string;
+		trackUris: string[];
+		/** The recipe of the preview, kept so that the mix can be refreshed later. */
+		remember?: SaveMixRequest['remember'];
+	} = $props();
 
 	let description = $state('Made with spot-mixer.');
 	let saving = $state(false);
@@ -16,7 +26,12 @@
 		error = null;
 		incompleteUrl = null;
 		try {
-			saved = await saveMix({ name: name.trim(), description: description.trim(), trackUris });
+			saved = await saveMix({
+				name: name.trim(),
+				description: description.trim(),
+				trackUris,
+				...(remember ? { remember } : {})
+			});
 		} catch (caught) {
 			error = describeError(caught);
 			if (caught instanceof ApiError && typeof caught.body.playlistUrl === 'string') {
@@ -30,7 +45,12 @@
 
 <section class="save" aria-label="Save to Spotify">
 	{#if saved}
-		<p>Saved {saved.added} tracks as a private playlist.</p>
+		<p>
+			Saved {saved.added} tracks as a private playlist.
+			{#if saved.remembered}
+				You can refresh it later in <a href={resolve('/mixes')}>Saved mixes</a>.
+			{/if}
+		</p>
 		<div class="row">
 			<!-- An absolute open.spotify.com URL from the API, not an app route: resolve() does not apply. -->
 			<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->

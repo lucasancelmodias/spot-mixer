@@ -3,6 +3,11 @@ import { ApiError } from './api';
 import { describeError } from './errors';
 
 describe('describeError', () => {
+	it('explains a refresh that did not change the playlist', () => {
+		expect(describeError(new ApiError(404, 'playlist_gone'))).toContain('forgot the saved mix');
+		expect(describeError(new ApiError(422, 'empty_mix'))).toContain('did not change');
+	});
+
 	it('tells the user when Spotify calls are paused', () => {
 		const message = describeError(
 			new ApiError(503, 'spotify_unavailable', { until: '2026-10-26T15:30:00.000Z' })

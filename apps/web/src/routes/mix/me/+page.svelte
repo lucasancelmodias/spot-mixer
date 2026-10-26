@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { MixPreview } from '@spot-mixer/shared';
+	import type { MixPreview, MixRecipe } from '@spot-mixer/shared';
 	import { MAX_MIX_ARTISTS, MAX_SOURCE_COUNT, MIN_MIX_ARTISTS } from '@spot-mixer/shared/limits';
 	import { getArtistInsights, getMe, previewMix } from '#lib/api.js';
 	import { clampCount } from '#lib/bucket.svelte.js';
@@ -26,6 +26,8 @@
 	let previewing = $state(false);
 	let previewError = $state<string | null>(null);
 	let playlistName = $state('');
+	/** The recipe of the shown preview, kept with the playlist for "refresh mix". */
+	let previewRecipe = $state<MixRecipe | null>(null);
 
 	const sourceNames = $derived(
 		Object.fromEntries(myMix.ranking.map((artist) => [artist.id, artist.name]))
@@ -68,7 +70,9 @@
 		previewing = true;
 		previewError = null;
 		try {
-			preview = await previewMix(myMix.recipe());
+			const recipe = myMix.recipe();
+			preview = await previewMix(recipe);
+			previewRecipe = recipe;
 			playlistName = mixName(myMix.selectedArtists.map((artist) => artist.name));
 		} catch (error) {
 			previewError = describeError(error);
@@ -247,7 +251,11 @@
 						onremove={removeTrack}
 						onmove={moveTrack}
 					/>
-					<SaveDialog bind:name={playlistName} {trackUris} />
+					<SaveDialog
+						bind:name={playlistName}
+						{trackUris}
+						remember={previewRecipe ? { mode: 'me', recipe: previewRecipe } : undefined}
+					/>
 				</section>
 			{/if}
 		{/if}

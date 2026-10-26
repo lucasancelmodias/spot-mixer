@@ -7,6 +7,8 @@ import type {
 	MeResponse,
 	MixPreview,
 	MixRecipe,
+	RefreshMixResponse,
+	SavedMix,
 	SaveMixRequest,
 	SaveMixResponse
 } from '@spot-mixer/shared';
@@ -72,6 +74,25 @@ export function previewMix(recipe: MixRecipe, fetchFn: FetchLike = browserFetch)
 /** Creates a private playlist in the user's Spotify account. */
 export function saveMix(body: SaveMixRequest, fetchFn: FetchLike = browserFetch) {
 	return request<SaveMixResponse>('/api/mixes', fetchFn, postJson(body));
+}
+
+/** The saved mix recipes of the user, the last used first. */
+export function listSavedMixes(fetchFn: FetchLike = browserFetch) {
+	return request<SavedMix[]>('/api/mixes/saved', fetchFn);
+}
+
+/** Runs a saved recipe again and replaces the tracks of its playlist. */
+export function refreshSavedMix(playlistId: string, fetchFn: FetchLike = browserFetch) {
+	const path = `/api/mixes/saved/${encodeURIComponent(playlistId)}/refresh`;
+	return request<RefreshMixResponse>(path, fetchFn, postJson({}));
+}
+
+/** Forgets a saved recipe. The playlist stays in Spotify. */
+export async function forgetSavedMix(playlistId: string, fetchFn: FetchLike = browserFetch) {
+	const res = await fetchFn(`/api/mixes/saved/${encodeURIComponent(playlistId)}`, {
+		method: 'DELETE'
+	});
+	if (!res.ok) throw await apiError(res);
 }
 
 async function request<T>(path: string, fetchFn: FetchLike, init?: RequestInit): Promise<T> {

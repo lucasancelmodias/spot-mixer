@@ -7,6 +7,7 @@ import {
 	MAX_MIX_TRACKS,
 	MAX_SOURCE_COUNT,
 	MIN_MIX_ARTISTS,
+	MIX_MODES,
 	MIX_POOLS,
 	ORDER_OPTIONS
 } from './limits';
@@ -86,14 +87,18 @@ export const trackUriSchema = z
 export const saveMixRequestSchema = z.object({
 	name: z.string().trim().min(1).max(100),
 	description: z.string().trim().max(300),
-	trackUris: z.array(trackUriSchema).min(1).max(MAX_MIX_TRACKS)
+	trackUris: z.array(trackUriSchema).min(1).max(MAX_MIX_TRACKS),
+	/** Keep the recipe, so that the mix can be refreshed later (plan D5). */
+	remember: z.object({ mode: z.enum(MIX_MODES), recipe: mixRecipeSchema }).optional()
 });
 
 /** Body of `POST /api/mixes`. */
 export const saveMixResponseSchema = z.object({
 	playlistId: z.string(),
 	url: z.string(),
-	added: z.number()
+	added: z.number(),
+	/** True when the recipe was kept for "refresh mix". */
+	remembered: z.boolean()
 });
 
 export type SourceSpec = z.infer<typeof sourceSpecSchema>;

@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, getArtistInsights, getHealth, getMe, logout, previewMix } from './api';
+import {
+	ApiError,
+	forgetSavedMix,
+	getArtistInsights,
+	getHealth,
+	getMe,
+	listSavedMixes,
+	logout,
+	previewMix,
+	refreshSavedMix
+} from './api';
 
 function respond(status: number, body?: unknown) {
 	const calls: { input: string; init?: RequestInit }[] = [];
@@ -121,5 +131,34 @@ describe('logout', () => {
 		await expect(logout(respond(403, { error: 'bad_origin' }).fetchFn)).rejects.toMatchObject({
 			code: 'bad_origin'
 		});
+	});
+});
+
+describe('saved mixes', () => {
+	it('lists, refreshes and forgets saved mixes at their API paths', async () => {
+		const list = respond(200, []);
+		const refresh = respond(200, { mix: {}, tracks: [], warnings: [], spotifyCalls: 0 });
+		const forget = respond(204);
+
+		expect(await listSavedMixes(list.fetchFn)).toEqual([]);
+		await refreshSavedMix('playlist1', refresh.fetchFn);
+		await forgetSavedMix('playlist1', forget.fetchFn);
+
+		expect(list.calls[0]?.input).toBe('/api/mixes/saved');
+		expect(refresh.calls[0]?.input).toBe('/api/mixes/saved/playlist1/refresh');
+		expect(refresh.calls[0]?.init?.method).toBe('POST');
+		expect(forget.calls[0]).toEqual({
+			input: '/api/mixes/saved/playlist1',
+			init: { method: 'DELETE' }
+		});
+	});
+
+	it('reports a playlist that the app can no longer change', async () => {
+		const error = await refreshSavedMix(
+			'playlist1',
+			respond(404, { error: 'playlist_gone' }).fetchFn
+		).catch((e: unknown) => e);
+
+		expect(error).toMatchObject({ status: 404, code: 'playlist_gone' });
 	});
 });

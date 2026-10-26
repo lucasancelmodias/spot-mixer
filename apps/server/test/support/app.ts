@@ -99,7 +99,12 @@ export async function signIn(app: Awaited<ReturnType<typeof buildTestApp>>['app'
 			body: JSON.stringify(body),
 			headers: { Cookie: cookie, Origin: TEST_ORIGIN, 'Content-Type': 'application/json' }
 		});
-	return { get, post };
+	const del = (path: string) =>
+		app.request(path, {
+			method: 'DELETE',
+			headers: { Cookie: `sid=${session}`, Origin: TEST_ORIGIN }
+		});
+	return { get, post, del };
 }
 
 /** Cookie values from the Set-Cookie headers of a response. */

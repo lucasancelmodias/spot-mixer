@@ -29,5 +29,14 @@ export const TIME_RANGES = ['short_term', 'medium_term', 'long_term'] as const;
 /** My Mix: the user's own tracks of an artist, or the artist's popular tracks (plan §7.3). */
 export const MIX_POOLS = ['familiar', 'discovery'] as const;
 
+/** The page a saved mix came from: Artist Mix or My Mix. */
+export const MIX_MODES = ['artists', 'me'] as const;
+
+/** Saved mix recipes per user (plan D5). */
+export const MAX_SAVED_MIXES = 50;
+
+/** A saved mix recipe expires this many days after its last save or refresh (plan D5). */
+export const SAVED_MIX_TTL_DAYS = 90;
+
 /** The longest My Mix ranking. */
 export const MAX_RANKED_ARTISTS = 50;

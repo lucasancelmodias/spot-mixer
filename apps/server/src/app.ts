@@ -15,6 +15,7 @@ import { insightsRoutes } from './routes/insights';
 import { meRoutes } from './routes/me';
 import { mixRoutes } from './routes/mixes';
 import { statusRoutes } from './routes/status';
+import { SavedMixes } from './saved/saved-mixes';
 import { sessionCookieName } from './session/cookies';
 import type { TokenCipher } from './session/crypto';
 import { requireSession } from './session/middleware';
@@ -82,7 +83,20 @@ export function createApp(deps: AppDeps) {
 	app.route('/api/status', statusRoutes(deps.guard));
 	app.route('/api/me', meRoutes({ auth, kv: deps.kv, spotify }));
 	app.route('/api/insights', insightsRoutes({ auth, listening, callBudget }));
-	app.route('/api/mixes', mixRoutes({ auth, catalog, listening, spotify, callBudget }));
+	const savedMixes = new SavedMixes({ kv: deps.kv, now: deps.now });
+	app.route(
+		'/api/mixes',
+		mixRoutes({
+			auth,
+			catalog,
+			listening,
+			spotify,
+			savedMixes,
+			callBudget,
+			now: deps.now,
+			log: deps.log
+		})
+	);
 	app.route('/api', catalogRoutes({ auth, catalog, callBudget }));
 	app.all('/api/*', (c) => c.json({ error: 'not_found' }, 404));
 	app.route(

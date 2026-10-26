@@ -147,7 +147,8 @@ describe('POST /api/mixes', () => {
 		expect(saveMixResponseSchema.parse(await res.json())).toEqual({
 			playlistId: 'playlist1',
 			url: 'https://open.spotify.com/playlist/playlist1',
-			added: 150
+			added: 150,
+			remembered: false
 		});
 		const create = t.calls.find((call) => call.url.pathname === '/v1/me/playlists');
 		expect(JSON.parse(String(create?.init?.body))).toEqual({ name: 'Mix', public: false });

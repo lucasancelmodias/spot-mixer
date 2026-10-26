@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { MixPreview } from '@spot-mixer/shared';
+	import type { MixPreview, MixRecipe } from '@spot-mixer/shared';
 	import { getMe, previewMix } from '#lib/api.js';
 	import { Bucket } from '#lib/bucket.svelte.js';
 	import ArtistSearch from '#lib/components/ArtistSearch.svelte';
@@ -19,6 +19,8 @@
 	let previewing = $state(false);
 	let previewError = $state<string | null>(null);
 	let playlistName = $state('');
+	/** The recipe of the shown preview, kept with the playlist for "refresh mix". */
+	let previewRecipe = $state<MixRecipe | null>(null);
 
 	const sourceNames = $derived(
 		Object.fromEntries(bucket.entries.map((entry) => [entry.artist.id, entry.artist.name]))
@@ -34,7 +36,9 @@
 		previewing = true;
 		previewError = null;
 		try {
-			preview = await previewMix(bucket.recipe());
+			const recipe = bucket.recipe();
+			preview = await previewMix(recipe);
+			previewRecipe = recipe;
 			playlistName = mixName(bucket.entries.map((entry) => entry.artist.name));
 		} catch (error) {
 			previewError = describeError(error);
@@ -138,7 +142,11 @@
 						onremove={removeTrack}
 						onmove={moveTrack}
 					/>
-					<SaveDialog bind:name={playlistName} {trackUris} />
+					<SaveDialog
+						bind:name={playlistName}
+						{trackUris}
+						remember={previewRecipe ? { mode: 'artists', recipe: previewRecipe } : undefined}
+					/>
 				</section>
 			{/if}
 		{/if}

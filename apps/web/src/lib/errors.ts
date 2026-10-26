@@ -25,6 +25,12 @@ export function describeError(error: unknown): string {
 			const issues = Array.isArray(error.body.issues) ? error.body.issues.join('; ') : '';
 			return `The mix settings are not valid. ${issues}`.trim();
 		}
+		case 'playlist_gone':
+			return 'Spotify no longer lets this app change that playlist, so the app forgot the saved mix.';
+		case 'empty_mix':
+			return 'The recipe gave no tracks this time, so the playlist did not change. Check the filters.';
+		case 'not_found':
+			return 'The app does not know this saved mix any more. It may have expired.';
 		case 'not_allowlisted':
 		case 'owner_premium':
 			return authErrorMessage(error.code) ?? 'Spotify refused the request.';

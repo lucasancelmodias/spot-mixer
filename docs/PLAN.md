@@ -500,7 +500,10 @@ API routes are under `/api`. OAuth routes are under `/auth`, to match the regist
 | GET | `/api/artists/:id/albums` | Albums and singles (all pages, at most 200) |
 | POST | `/api/insights/artists` | My Mix ranking with reasons. Body: `{ recency }` (0 to 1); later also the history totals (§7.4) |
 | POST | `/api/mixes/preview` | Run the engine on a recipe |
-| POST | `/api/mixes` | Create the playlist and add the tracks |
+| POST | `/api/mixes` | Create the playlist and add the tracks; with `remember`, keep the recipe (M4) |
+| GET | `/api/mixes/saved` | Saved mix recipes, the last used first (M4) |
+| POST | `/api/mixes/saved/:playlistId/refresh` | Run the recipe again and replace the playlist tracks (M4) |
+| DELETE | `/api/mixes/saved/:playlistId` | Forget the recipe; the playlist stays (M4) |
 | DELETE | `/api/me/data` | Delete all data that the app keeps for the user |
 
 Input limits: at most 12 artists, 50 albums and 500 tracks per mix. Each URI must match `^spotify:track:[A-Za-z0-9]{22}$`.
@@ -562,6 +565,7 @@ Every key has a TTL, so no Spotify data is stored without a time limit (Terms IV
 | `c:dz:artist:{name}` | string | 7 d | Deezer artist ID (Deezer data; only with D2) |
 | `c:dz:top:{deezerId}` | string | 24 h | Deezer top list (only with D2) |
 | `c:u:{uid}:me` | string | 5 min | Profile for `/api/me` |
+| `c:u:{uid}:mixes` | string | 90 d after the newest use | Saved mix recipes (IDs, names, options; no track data), at most 50 |
 | `c:u:{uid}:top:{type}:{range}` | string | 1 h | User top items (top tracks: 2 pages, 100 tracks) |
 | `c:u:{uid}:recent` | string | 15 min | Recent plays |
 | `c:u:{uid}:followed` | string | 6 h | Followed artist IDs |
@@ -754,6 +758,21 @@ M3 status (2026-10-26):
   - Live check with the owner's account: a My Mix of the top 5 artists saves to Spotify, and the call counts match §5.4. This is the "done when" check of M3.
   - Tune `β`, `γ`, `δ` and `ε` with that data (§7.2).
 
+M4 status (2026-10-26). The owner chose the options:
+- **Built: saved mixes and "refresh mix" (D5).**
+  - A save keeps the recipe: the mode, the sources and the options, plus artist names from the cached catalog. It holds no track data.
+  - The recipes live in one key per user, `c:u:{uid}:mixes`, at most 50.
+  - Each recipe expires 90 days after its last save or refresh. Logout and "delete my data" remove the key at once.
+  - "Refresh" runs the recipe again with a new seed and the user's current data, then replaces the playlist tracks: `PUT` the first 100, `POST` the rest.
+  - If Spotify refuses the change (404, or a plain 403), the app forgets the recipe and answers `playlist_gone`.
+  - "Forget" removes only the recipe; the playlist stays in Spotify. The `/mixes` page lists, refreshes and forgets saved mixes.
+- **Not built:**
+  - `deezer-rank`: not needed while Top Tracks works (D2).
+  - Cover image: deferred. The owner prefers an album-art collage, but the design guidelines forbid changes to cover art (C8), and the feature needs the `ugc-image-upload` scope, so every user would sign in again. Decide before building.
+  - History import (D6).
+- **Tests:** 145 server tests and 41 web tests.
+- **Live check:** `GET /api/mixes/saved` answers on the owner's dev server. Saving and refreshing write to the owner's Spotify account, so the owner checks them in the browser.
+
 M1 live checks (one allowlisted account, small fixed call budget):
 
 1. How close is the Search order (`artist:"<name>"`) to Deezer's top list for 20 artists of different sizes? How many Deezer top tracks match by title?
@@ -793,6 +812,6 @@ Confirmed on 2026-10-26:
 | D2 | Source of "most played" tracks | **Decided:** Top Tracks while this app has it, then Search ranked by `popularity`, then Search order (§5.5). | `deezer-rank`: re-ranks with Deezer's real top list for 0–5 extra Spotify calls per artist. It is a gray area under Policy III.5, and Deezer allows non-commercial use only. |
 | D3 | Public app name | Keep `spot-mixer` as the repository name. Choose a display name without "Spot" or other "Spotify"-like words. | Keep the name and accept the risk while the app stays private. |
 | D4 | Hosting | **Local only** for the MVP (`127.0.0.1`). | A hosted HTTPS domain. Needs a TLS proxy, an HTTPS redirect URI (cookies then get `Secure`), secrets, a Redis password and one more redirect URI. |
-| D5 | Saved mix recipes ("refresh this mix later") | **Defer to M4.** Store only the recipe (artist IDs and options) in Redis with a TTL. | Add SQLite or Postgres if history becomes a core feature. |
+| D5 | Saved mix recipes ("refresh this mix later") | **Built in M4.** The recipe lives in Redis for 90 days after its last use, and logout removes it. | Add SQLite or Postgres if history becomes a core feature. |
 | D6 | History import (lifetime play counts) | **M4, optional.** The browser parses the files (§7.4). | Leave it out. My Mix then uses the API signals only (about 1 year). |
 | D7 | Market | **One market for all users** (`SPOTIFY_MARKET`, the owner's country). Catalog reads use the app token and one shared cache. | A market per user, with per-user catalog caches. Only needed if the users live in different countries. |
